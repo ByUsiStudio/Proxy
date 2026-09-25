@@ -117,11 +117,20 @@ CREATE TABLE "sys_config" (
 );
 
 
-# --添加管理员信息
-INSERT INTO "sys_user"("id", "username", "password", "type","create_time") VALUES ('1', 'admin', '123456', '1','1609660694000');
+-- 添加管理员信息
+-- 【安全修复】不再内置默认密码。原脚本写入 admin/123456（以及两个演示账号的 123456），
+-- 任何人都可以用这套公开凭据登录，属于严重的默认口令漏洞，故全部改为空密码。
+-- 登录路径对空密码一律拒绝（见 UserServiceImpl.login/domainLogin），因此这些账号在
+-- 首次登录前不可用，必须由运维人员设置强密码后启用。
+-- 首次登录步骤（二选一）：
+--   1) 启动服务后进入后台“用户管理”，为 admin 设置强密码；
+--   2) 直接执行 SQL 把 sys_user 中 username 为 admin 的 password 改成强密码。
+-- 注意：后台管理面板的入口密码来自 app.properties 的 password 配置项，与此表密码相互独立，
+-- 同样不允许留空（为空时 AuthFilter 会拒绝所有后台请求）。
+INSERT INTO "sys_user"("id", "username", "password", "type","create_time") VALUES ('1', 'admin', '', '1','1609660694000');
 
-INSERT INTO "sys_user"("id", "username", "password", "type","create_time") VALUES ('2', 'heixiaoma', '123456', '2','1609660694000');
-INSERT INTO "sys_user"("id", "username", "password", "type","create_time") VALUES ('3', 'jishunan', '123456', '2','1609660694000');
+INSERT INTO "sys_user"("id", "username", "password", "type","create_time") VALUES ('2', 'heixiaoma', '', '2','1609660694000');
+INSERT INTO "sys_user"("id", "username", "password", "type","create_time") VALUES ('3', 'jishunan', '', '2','1609660694000');
 
 INSERT INTO "sys_port"("id", "user_id", "port","create_time") VALUES ('1', '2', '8888','1609660694000');
 INSERT INTO "sys_port"("id", "user_id", "port","create_time") VALUES ('2', '3', '9999','1609660694000');
