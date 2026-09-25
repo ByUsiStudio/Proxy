@@ -43,10 +43,11 @@ function walk(dir, filter, out = []) {
   const abs = join(ROOT, dir);
   if (!existsSync(abs)) return out;
   for (const name of readdirSync(abs)) {
-    const rel = join(dir, name);
+    // 统一为正斜杠后再过滤/输出，避免 Windows 反斜杠导致路径规则（如 templates/email/）失配
+    const rel = join(dir, name).replace(/\\/g, '/');
     const st = statSync(join(ROOT, rel));
     if (st.isDirectory()) walk(rel, filter, out);
-    else if (filter(rel)) out.push(rel.replace(/\\/g, '/'));
+    else if (filter(rel)) out.push(rel);
   }
   return out;
 }
@@ -189,15 +190,50 @@ const SINK_PATTERNS = [
   { name: 'inline on* attribute', re: /<[a-zA-Z][^>]*\son(?:click|change|input|submit|load|error|mouse\w+|key\w+)\s*=\s*"/g }
 ];
 
-/** 判断 innerHTML 赋值右侧是否为可信常量表达式。 */
+/**
+ * 判断 innerHTML 赋值右侧是否为可信常量表达式。
+ * 放行规则（与 PX.icon / Admin.svg 的实现不变量一致）：
+ *   · 字符串字面量
+ *   · 裸标识符（文件内定义的常量 SVG 片段，如 MOON / SUN）
+ *   · 上述两者的三元表达式（A ? B : C）
+ *   · PX.icon(name[, 'class']) / Admin.svg(name[, 'class'])
+ *     —— 图标名必须命中 ICON_PATHS 常量表，未命中直接返回 ''，
+ *        因此 name 是变量也不会把外部数据带入输出；但 class 参数必须为字面量。
+ */
 function trustedInnerHtmlRhs(line) {
   const m = line.match(/\.innerHTML\s*=\s*(.+?);?\s*$/);
   if (!m) return false;
-  const rhs = m[1].trim().replace(/;$/, '');
-  // 内置图标常量表调用，参数必须是字符串字面量
-  if (/^(?:PX|Admin)\.(?:icon|svg)\(\s*'[^'\\]*'\s*(?:,\s*'[^'\\]*'\s*)?\)$/.test(rhs)) return true;
-  // 裸标识符（文件内常量）
-  if (/^[A-Za-z_$][\w$]*$/.test(rhs)) return true;
+  let rhs = m[1].trim().replace(/;$/, '');
+
+  const literal = /^'[^'\\]*'$|^"[^"\\]*"$/;
+  const ident = /^[A-Za-z_$][\w$]*$/;
+  const atom = (s) => literal.test(s) || ident.test(s);
+
+  // 三元：X ? A : B（允许嵌套，逐层拆）
+  while (true) {
+    const q = rhs.indexOf('?');
+    if (q < 0) break;
+    const colon = rhs.lastIndexOf(':');
+    if (colon < q) return false;
+    const cond = rhs.slice(0, q).trim();
+    const left = rhs.slice(q + 1, colon).trim();
+    const right = rhs.slice(colon + 1).trim();
+    // 条件部分允许标识符/字面量构成的比较表达式，如 theme === 'dark'
+    if (!/^[\w$.\s'"=!<>()]+$/.test(cond)) return false;
+    if (!atom(left) || !atom(right)) return false;
+    return true;
+  }
+  if (atom(rhs)) return true;
+
+  // 图标常量表调用：PX.icon / Admin.svg
+  const call = rhs.match(/^(?:PX|Admin)\.(?:icon|svg)\(\s*(.+?)\s*\)$/);
+  if (call) {
+    const args = call[1].split(',').map((s) => s.trim());
+    if (args.length > 2) return false;
+    // 第二个参数（额外 class）必须是字符串字面量
+    if (args.length === 2 && !literal.test(args[1])) return false;
+    return true;
+  }
   return false;
 }
 

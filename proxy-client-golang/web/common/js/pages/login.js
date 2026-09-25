@@ -69,7 +69,9 @@
 
     ['asideMark', 'mainMark'].forEach(function (id) {
       var node = document.getElementById(id);
-      if (node) node.innerHTML = PX.icon('shieldCheck');
+      if (!node) return;
+      PX.clear(node);
+      node.appendChild(PX.iconNode('shieldCheck'));
     });
 
     var themeSlot = document.getElementById('themeSlot');

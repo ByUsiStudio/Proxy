@@ -38,7 +38,7 @@
                         <div class="mdui-card-primary-subtitle">${server.ip?html}:${server.port?html}</div>
                     </div>
                     <div class="mdui-card-actions">
-                        <div class="mdui-card-primary-subtitle">连接数：${server.num}</div>
+                        <div class="mdui-card-primary-subtitle">连接数：${(server.num!0)?c}</div>
                     </div>
                 </div>
             </#list>

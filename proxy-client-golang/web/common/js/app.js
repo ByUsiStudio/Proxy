@@ -14,6 +14,11 @@
   /* ------------------------------------------------------------------ *
    * 1. 图标表（stroke 风格内联 SVG，避免依赖 Material Icons 字体）
    * ------------------------------------------------------------------ */
+  var SVG_NS = 'http://www.w3.org/2000/svg';
+  // 额外 class 只允许 CSS 类名字符。图标名本身必须命中 ICON_PATHS 常量表，
+  // 未命中即返回空串，因此图标名即使来自运行时也无法把内容带进 SVG。
+  var ICON_CLASS_RE = /^[A-Za-z0-9_\- ]*$/;
+
   var ICON_PATHS = {
     menu: 'M3 6h18M3 12h18M3 18h18',
     close: 'M18 6 6 18M6 6l12 12',
@@ -64,21 +69,43 @@
     arrowUp: 'M12 19V5M5 12l7-7 7 7'
   };
 
-  /** 返回内置图标 SVG 字符串（仅接受内部常量，不存在注入面）。 */
+  /** 规整额外 class：非法字符一律丢弃，绝不进入属性值。 */
+  function safeIconClass(extraClass) {
+    if (!extraClass) return '';
+    var value = String(extraClass);
+    return ICON_CLASS_RE.test(value) ? value.trim() : '';
+  }
+
+  /**
+   * 返回内置图标 SVG 字符串。
+   * 只有 ICON_PATHS 中的常量路径会被写入，图标名不参与拼接；
+   * extraClass 经过字符白名单校验，因此本函数输出始终是可信常量。
+   */
   PX.icon = function (name, extraClass) {
     var d = ICON_PATHS[name];
     if (!d) return '';
+    var extra = safeIconClass(extraClass);
     return (
-      '<svg class="icon' + (extraClass ? ' ' + extraClass : '') +
+      '<svg class="icon' + (extra ? ' ' + extra : '') +
       '" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="' + d + '"/></svg>'
     );
   };
 
+  /** 直接构造 SVG 节点（不经过任何 HTML 解析，用于运行时替换占位符）。 */
   PX.iconNode = function (name, extraClass) {
-    var span = document.createElement('span');
-    span.className = 'icon-slot';
-    span.innerHTML = PX.icon(name, extraClass);
-    return span.firstChild || span;
+    var d = ICON_PATHS[name];
+    var extra = safeIconClass(extraClass);
+    var svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('class', 'icon' + (extra ? ' ' + extra : ''));
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('focusable', 'false');
+    if (d) {
+      var path = document.createElementNS(SVG_NS, 'path');
+      path.setAttribute('d', d);
+      svg.appendChild(path);
+    }
+    return svg;
   };
 
   /** 把页面中 <span data-icon="name"> 占位替换为内联 SVG 图标。 */
@@ -86,7 +113,8 @@
     PX.$$('[data-icon]', root || document).forEach(function (node) {
       var name = node.getAttribute('data-icon');
       if (!name || node.getAttribute('data-icon-applied') === '1') return;
-      node.innerHTML = PX.icon(name, node.getAttribute('data-icon-class') || '');
+      PX.clear(node);
+      node.appendChild(PX.iconNode(name, node.getAttribute('data-icon-class') || ''));
       node.setAttribute('data-icon-applied', '1');
     });
   };
@@ -122,7 +150,7 @@
         if (value === null || value === undefined || value === false) return;
         if (key === 'class') node.className = value;
         else if (key === 'text') node.textContent = value;
-        else if (key === 'icon') node.innerHTML = PX.icon(value);
+        else if (key === 'icon') node.appendChild(PX.iconNode(value));
         else if (key === 'dataset') Object.assign(node.dataset, value);
         else if (key === 'style') Object.assign(node.style, value);
         else if (key.indexOf('on') === 0 && typeof value === 'function') {

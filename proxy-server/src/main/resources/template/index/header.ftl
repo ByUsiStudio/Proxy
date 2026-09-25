@@ -99,18 +99,33 @@
         'use strict';
 
         /* ---------- 主题切换 ---------- */
-        var SUN = '<path d="M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10"/><path d="M12 1v3M12 20v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M1 12h3M20 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>';
-        var MOON = '<path d="M21 13A9 9 0 1 1 11 3a7 7 0 0 0 10 10z"/>';
+        /* 图标路径以常量数组保存，运行时用 DOM API 构造 SVG，避免任何 innerHTML 解析。 */
+        var SUN_D = [
+            'M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10',
+            'M12 1v3M12 20v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M1 12h3M20 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1'
+        ];
+        var MOON_D = ['M21 13A9 9 0 1 1 11 3a7 7 0 0 0 10 10z'];
 
         function currentTheme() {
             return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
         }
 
+        function setThemeIcon(theme) {
+            var icon = document.getElementById('themeIcon');
+            if (!icon) { return; }
+            var paths = theme === 'dark' ? MOON_D : SUN_D;
+            while (icon.firstChild) { icon.removeChild(icon.firstChild); }
+            for (var i = 0; i < paths.length; i++) {
+                var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                path.setAttribute('d', paths[i]);
+                icon.appendChild(path);
+            }
+        }
+
         function applyTheme(theme) {
             document.documentElement.setAttribute('data-theme', theme);
             document.documentElement.style.colorScheme = theme;
-            var icon = document.getElementById('themeIcon');
-            if (icon) { icon.innerHTML = theme === 'dark' ? MOON : SUN; }
+            setThemeIcon(theme);
         }
 
         applyTheme(currentTheme());
