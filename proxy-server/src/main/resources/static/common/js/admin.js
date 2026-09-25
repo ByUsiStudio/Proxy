@@ -603,6 +603,11 @@
    * ------------------------------------------------------------------ */
   Admin.initNav = function () {
     var path = (global.location.pathname || '').replace(/\/+$/, '') || '/';
+    // `/admin` 会渲染仪表盘（与 `/admin/dashboard` 是同一个页面），
+    // 若不做归一，访问 `/admin` 时左侧导航不会有任何高亮项。
+    if (path === '/admin') {
+      path = '/admin/dashboard';
+    }
     $$('.nav__link[href], .mdui-list-item[href]').forEach(function (link) {
       var raw = link.getAttribute('href') || '';
       if (!raw || raw.charAt(0) !== '/') return;

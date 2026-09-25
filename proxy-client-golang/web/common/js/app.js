@@ -66,7 +66,10 @@
     chevron: 'm6 9 6 6 6-6',
     external: 'M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14 21 3',
     arrowDown: 'M12 5v14M19 12l-7 7-7-7',
-    arrowUp: 'M12 19V5M5 12l7-7 7 7'
+    arrowUp: 'M12 19V5M5 12l7-7 7 7',
+    archive: 'M3 7h18v3H3zM5 10h14v10H5zM10 14h4',
+    stethoscope: 'M6 3v6a4 4 0 0 0 8 0V3M4 3h4M12 3h4M18 12v3a5 5 0 0 1-5 5 5 5 0 0 1-5-5',
+    clipboard: 'M9 4h6v3H9zM7 5H5v16h14V5h-2M9 12h6M9 16h4'
   };
 
   /** 规整额外 class：非法字符一律丢弃，绝不进入属性值。 */
@@ -841,6 +844,7 @@
       label: '运行观测',
       items: [
         { id: 'log', href: 'log.html', label: '运行日志', icon: 'list' },
+        { id: 'logs', href: 'logs.html', label: '日志文件', icon: 'archive' },
         { id: 'stats', href: 'stats.html', label: '数据统计', icon: 'chart' }
       ]
     },
@@ -888,7 +892,21 @@
           ])
         ]));
         header.appendChild(PX.el('div', { class: 'header__spacer' }));
+        // 失败事件徽章：有失败才显示，点击弹出最近事件列表。
+        // 计数来自 /console/events（内存环形缓冲），不含整条日志流。
+        var failureChip = PX.el('button', {
+          type: 'button',
+          class: 'chip chip--dot chip--warn chip--action hidden',
+          id: 'shellFailureChip',
+          title: '最近的隧道/云端失败事件',
+          'aria-live': 'polite',
+          onclick: function () { PX.failureEvents.openPanel(); }
+        }, [
+          PX.iconNode('warn', 'icon--sm'),
+          PX.el('span', { id: 'shellFailureCount', text: '0' })
+        ]);
         header.appendChild(PX.el('div', { class: 'header__actions' }, [
+          failureChip,
           PX.el('span', { class: 'hide-sm', id: 'shellStatusWrap' }, [statusChip]),
           PX.theme.control(),
           profile ? PX.el('span', { class: 'chip', title: profile.username || '' }, [
@@ -947,6 +965,8 @@
         var versionNode = document.getElementById('shellVersion');
         if (versionNode) versionNode.textContent = ' v' + ((info && info.coreVersion) || '16.0');
         PX.shell.setStatus('控制台已就绪', 'ok');
+        // 会话建立成功后再拉失败事件：未授权时请求必然 401，没有必要发。
+        PX.failureEvents.mount();
       }).catch(function (err) {
         PX.shell.setStatus('未授权', 'warn');
         PX.toastErr(err.message || '控制台会话建立失败', '安全提示');
@@ -1022,6 +1042,171 @@
       },
       isOpen: function () { return socket && socket.readyState === WebSocket.OPEN; }
     };
+  };
+
+  /* ------------------------------------------------------------------ *
+   * 9.5 失败事件（页头徽章 + 事件面板）
+   *     数据来源：GET /console/events?limit=N（服务端内存环形缓冲，最新在前）。
+   *     所有文本一律 textContent 渲染：域名与错误消息都可能来自远端服务端。
+   * ------------------------------------------------------------------ */
+  var FAILURE_POLL_MS = 30000;
+  var FAILURE_LIMIT = 50;
+  // 事件类型 → 中文标签。未命中的类型直接原样显示（服务端常量，仍然是文本节点）。
+  var FAILURE_KIND_LABELS = {
+    'tunnel-create': '隧道创建失败',
+    'tunnel-conflict': '域名冲突',
+    'tunnel-limit': '隧道数量超限',
+    reconnect: '连接断开重连',
+    'cloud-api': '云端不可达',
+    'config-import': '配置导入失败',
+    'ws-channel': '日志通道异常',
+    'tls-config': 'TLS 配置失败',
+    'tls-dial': 'TLS/拨号失败',
+    'log-sink': '日志落盘异常'
+  };
+
+  var failureState = { events: [], count24h: 0, total: 0, at: '' };
+
+  function failureKindLabel(kind) {
+    var key = String(kind || '');
+    return FAILURE_KIND_LABELS[key] || (key || '未知事件');
+  }
+
+  function failureTimeText(value) {
+    var raw = String(value || '');
+    if (!raw) return '—';
+    var d = new Date(raw);
+    if (isNaN(d.getTime())) return raw;
+    function p(v) { return (v < 10 ? '0' : '') + v; }
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' +
+      p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+  }
+
+  function renderFailureChip() {
+    var chip = document.getElementById('shellFailureChip');
+    var count = document.getElementById('shellFailureCount');
+    if (!chip || !count) return;
+    var n = failureState.events.length;
+    var recent = failureState.count24h || n;
+    count.textContent = String(recent);
+    chip.classList.toggle('hidden', recent === 0);
+    chip.title = recent
+      ? '最近 24 小时记录到 ' + recent + ' 条失败事件，点击查看'
+      : '暂无失败事件';
+  }
+
+  function failureRows() {
+    if (!failureState.events.length) {
+      return [PX.empty('暂无失败事件', '隧道创建 / 重连 / 云端不可达等异常会记录在这里', 'inbox')];
+    }
+    return failureState.events.map(function (item) {
+      var level = String(item.kind || '').indexOf('cloud') === 0 ? 'error' : 'warn';
+      return PX.el('div', { class: 'log-line log-line--' + level }, [
+        PX.el('span', { class: 'log-line__time', text: failureTimeText(item.time) }),
+        PX.el('span', { class: 'log-line__domain', title: String(item.domain || 'system'),
+          text: String(item.domain || 'system') }),
+        PX.el('span', { class: 'log-line__msg', text: failureKindLabel(item.kind) + '：' + String(item.message || '') })
+      ]);
+    });
+  }
+
+  function openFailurePanel() {
+    var modal = PX.el('div', { class: 'modal', role: 'dialog', 'aria-modal': 'true' });
+    var body = PX.el('div', { class: 'modal__body' });
+    var listBox = PX.el('div', { class: 'stack' });
+    var closeBtn = PX.el('button', {
+      type: 'button', class: 'btn btn--ghost', text: '关闭',
+      onclick: function () { closeModal(); }
+    });
+    var clearBtn = PX.el('button', {
+      type: 'button', class: 'btn btn--danger', text: '清空事件',
+      onclick: function () {
+        PX.api.post('/console/events/clear', {}).then(function () {
+          PX.toastOk('已清空失败事件');
+          refreshFailureEvents();
+          renderPanelList();
+        }).catch(function (err) {
+          PX.toastErr((err && err.message) || '清空失败');
+        });
+      }
+    });
+    var logsLink = PX.el('a', { class: 'btn btn--ghost', href: 'logs.html' }, [
+      PX.iconNode('archive', 'icon--sm'), PX.el('span', { text: '日志文件' })
+    ]);
+
+    var summary = PX.el('div', { class: 'text-xs muted' });
+
+    function renderPanelList() {
+      PX.clear(listBox);
+      failureRows().forEach(function (node) { listBox.appendChild(node); });
+      summary.textContent = '最近 24 小时 ' + (failureState.count24h || 0) + ' 条 · 缓冲共 ' +
+        (failureState.total || failureState.events.length) + ' 条 · 更新于 ' +
+        (failureState.at ? failureTimeText(failureState.at) : '—');
+    }
+
+    body.appendChild(PX.el('div', { class: 'stack' }, [
+      PX.el('div', { class: 'text-sm muted', text: '仅记录失败/异常事件（隧道创建、重连、云端不可达、配置导入、日志通道、TLS 等），不复制整条日志流。' }),
+      summary,
+      listBox
+    ]));
+
+    var panel = PX.el('div', { class: 'modal__panel modal__panel--wide' }, [
+      PX.el('div', { class: 'modal__head' }, [
+        PX.el('h3', { class: 'modal__title', text: '失败事件' }),
+        PX.el('button', {
+          type: 'button', class: 'btn btn--ghost btn--icon', 'aria-label': '关闭',
+          onclick: function () { closeModal(); }
+        }, [PX.iconNode('close', 'icon--sm')])
+      ]),
+      body,
+      PX.el('div', { class: 'modal__foot' }, [logsLink, clearBtn, closeBtn])
+    ]);
+    modal.appendChild(panel);
+    modal.addEventListener('click', function (ev) { if (ev.target === modal) closeModal(); });
+
+    function closeModal() {
+      PX.modal.close(modal);
+      setTimeout(function () { modal.remove(); }, 240);
+    }
+
+    renderPanelList();
+    document.body.appendChild(modal);
+    PX.modal.open(modal);
+  }
+
+  /** 拉取失败事件并刷新徽章；失败时静默（避免在控制台不可用时刷弹窗）。 */
+  function refreshFailureEvents() {
+    return PX.api.get('/console/events', { limit: FAILURE_LIMIT }).then(function (payload) {
+      var data = payload && typeof payload === 'object' ? payload : {};
+      failureState.events = Array.isArray(data.events) ? data.events : [];
+      failureState.count24h = Number(data.count24h) || 0;
+      failureState.total = Number(data.total) || failureState.events.length;
+      failureState.at = new Date().toISOString();
+      renderFailureChip();
+      return failureState;
+    }).catch(function () {
+      // 控制台不可用或未授权：隐藏徽章即可，不要打扰用户。
+      var chip = document.getElementById('shellFailureChip');
+      if (chip) chip.classList.add('hidden');
+      return failureState;
+    });
+  }
+
+  PX.failureEvents = {
+    state: function () { return failureState; },
+    refresh: refreshFailureEvents,
+    openPanel: openFailurePanel,
+    /** 由外壳在页面加载后调用：拉取一次并定时刷新。 */
+    mount: function () {
+      if (PX.failureEvents._mounted) return;
+      PX.failureEvents._mounted = true;
+      refreshFailureEvents();
+      var timer = setInterval(function () {
+        if (document.hidden) return;
+        refreshFailureEvents();
+      }, FAILURE_POLL_MS);
+      global.addEventListener('pagehide', function () { clearInterval(timer); });
+    }
   };
 
   /* ------------------------------------------------------------------ *

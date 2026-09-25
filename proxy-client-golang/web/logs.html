@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <meta name="referrer" content="no-referrer">
+  <title>日志文件 · Proxy 控制台</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%232f6bff' d='M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="common/css/app.css">
+  <script src="/api.js"></script>
+  <script src="common/js/app.js"></script>
+</head>
+<body>
+  <div class="app">
+    <header class="app-header" id="appHeader"></header>
+    <div class="app-body">
+      <nav class="side-nav" id="sideNav" aria-label="主导航"></nav>
+      <button type="button" class="scrim" id="scrim" aria-label="关闭菜单" tabindex="-1"></button>
+
+      <main class="content" id="content">
+        <div class="page-head">
+          <div>
+            <h1 class="page-head__title">日志文件</h1>
+            <p class="page-head__desc">落盘日志（按大小轮转）的历史查询与下载；读取始终从文件尾部开始，受行数与字节上限保护。</p>
+          </div>
+          <div class="toolbar">
+            <a class="btn btn--ghost" href="log.html">
+              <span data-icon="terminal"></span><span class="hide-sm">实时日志</span>
+            </a>
+          </div>
+        </div>
+
+        <section class="card">
+          <div class="card__head">
+            <h2 class="card__title"><span data-icon="archive"></span>日志文件</h2>
+            <div class="toolbar">
+              <span class="text-xs faint" id="logDirText">正在读取日志目录…</span>
+              <button type="button" class="btn btn--ghost btn--sm" id="refreshFiles">
+                <span data-icon="refresh"></span><span>刷新</span>
+              </button>
+            </div>
+          </div>
+          <div class="card__body card__body--flush">
+            <div class="table-wrap">
+              <table class="table table--stack" id="logFileTable">
+                <thead>
+                  <tr>
+                    <th>文件名</th>
+                    <th class="table__num">大小</th>
+                    <th>修改时间</th>
+                    <th class="table__num">状态</th>
+                    <th class="table__actions">操作</th>
+                  </tr>
+                </thead>
+                <tbody id="logFileRows"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="card__foot" id="fileFoot">正在读取日志文件列表…</div>
+        </section>
+
+        <section class="card">
+          <div class="card__head">
+            <h2 class="card__title"><span data-icon="filter"></span>查询条件</h2>
+            <span class="card__hint">最多返回 5000 行，服务端从文件尾部反向读取</span>
+          </div>
+          <div class="card__body">
+            <div class="toolbar">
+              <label class="field__label" for="fileSelect">文件</label>
+              <select class="select" id="fileSelect" aria-label="选择日志文件" style="width: auto; min-width: 14rem;"></select>
+              <div class="seg" id="levelSeg" role="group" aria-label="日志级别过滤">
+                <button type="button" class="seg__item is-active" data-level="all" aria-pressed="true">全部</button>
+                <button type="button" class="seg__item" data-level="debug" aria-pressed="false">debug</button>
+                <button type="button" class="seg__item" data-level="info" aria-pressed="false">info</button>
+                <button type="button" class="seg__item" data-level="warn" aria-pressed="false">warn</button>
+                <button type="button" class="seg__item" data-level="error" aria-pressed="false">error</button>
+              </div>
+              <div class="field-row" style="width: min(100%, 18rem);">
+                <input class="input" id="keyword" type="search" placeholder="关键词过滤" aria-label="关键词过滤" autocomplete="off">
+                <select class="select" id="lineLimit" aria-label="返回行数">
+                  <option value="200">200 行</option>
+                  <option value="500" selected>500 行</option>
+                  <option value="2000">2000 行</option>
+                </select>
+              </div>
+            </div>
+            <div class="toolbar mt-4">
+              <button type="button" class="btn btn--primary btn--sm" id="loadBtn">
+                <span data-icon="search"></span><span>查询</span>
+              </button>
+              <button type="button" class="btn btn--ghost btn--sm" id="refreshBtn">
+                <span data-icon="refresh"></span><span>刷新</span>
+              </button>
+              <button type="button" class="btn btn--ghost btn--sm" id="downloadBtn">
+                <span data-icon="download"></span><span>下载</span>
+              </button>
+              <button type="button" class="btn btn--ghost btn--sm" id="copyBtn">
+                <span data-icon="copy"></span><span>复制</span>
+              </button>
+              <span class="text-xs faint nums" id="lineCount" role="status">尚未查询</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card__head">
+            <h2 class="card__title"><span data-icon="terminal"></span>日志内容</h2>
+            <span class="card__hint" id="truncHint"></span>
+          </div>
+          <div class="card__body">
+            <div class="log-view" id="logView" aria-live="polite"></div>
+          </div>
+          <div class="card__foot" id="logFoot">请选择文件后点击「查询」。</div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <script src="common/js/pages/logs.js"></script>
+</body>
+</html>

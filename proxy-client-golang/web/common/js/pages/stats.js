@@ -49,7 +49,8 @@
       'connChart', 'connLegend', 'connFoot',
       'cloudTable', 'cloudRows', 'cloudFoot', 'cloudStamp', 'cloudRefresh',
       'tokenBadge', 'coreVersion', 'deviceId', 'consoleAddress', 'apiUrl',
-      'refreshAll'
+      'refreshAll',
+      'failEventsList', 'failEventsFoot', 'failEventsStamp', 'failEventsRefresh', 'failEventsClear'
     ].forEach(function (id) { els[id] = byId(id); });
   }
 
@@ -307,6 +308,91 @@
   }
 
   /* ---------------------------------------------------------------- *
+   * 失败事件（内存环形缓冲，非持久化）
+   *     消息与域名都可能来自远端，全部用 textContent / PX.el 渲染。
+   * ---------------------------------------------------------------- */
+  var FAILURE_KIND_LABELS = {
+    'tunnel-create': '隧道创建失败',
+    'tunnel-conflict': '域名冲突',
+    'tunnel-limit': '隧道数量超限',
+    reconnect: '连接断开重连',
+    'cloud-api': '云端不可达',
+    'config-import': '配置导入失败',
+    'ws-channel': '日志通道异常',
+    'tls-config': 'TLS 配置失败',
+    'tls-dial': 'TLS/拨号失败',
+    'log-sink': '日志落盘异常'
+  };
+
+  function failKindLabel(kind) {
+    var key = String(kind || '');
+    return FAILURE_KIND_LABELS[key] || (key || '未知事件');
+  }
+
+  function failTimeText(value) {
+    var raw = String(value || '');
+    if (!raw) return '—';
+    var d = new Date(raw);
+    if (isNaN(d.getTime())) return raw;
+    function p(v) { return (v < 10 ? '0' : '') + v; }
+    return p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' +
+      p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+  }
+
+  function renderFailEvents(events) {
+    PX.clear(els.failEventsList);
+    if (!events.length) {
+      els.failEventsList.appendChild(PX.empty('暂无失败事件', '隧道异常、云端不可达等会记录在这里', 'inbox'));
+      return;
+    }
+    events.forEach(function (item) {
+      var kind = String(item.kind || '');
+      var level = kind.indexOf('cloud') === 0 || kind === 'tls-dial' ? 'error' : 'warn';
+      els.failEventsList.appendChild(PX.el('div', { class: 'log-line log-line--' + level }, [
+        PX.el('span', { class: 'log-line__time', text: failTimeText(item.time) }),
+        PX.el('span', { class: 'log-line__domain', title: String(item.domain || 'system'),
+          text: String(item.domain || 'system') }),
+        PX.el('span', { class: 'log-line__msg', text: failKindLabel(item.kind) + '：' + String(item.message || '') })
+      ]));
+    });
+  }
+
+  function loadFailEvents() {
+    return PX.api.get('/console/events', { limit: 20 }).then(function (payload) {
+      var data = payload && typeof payload === 'object' ? payload : {};
+      var events = Array.isArray(data.events) ? data.events : [];
+      renderFailEvents(events);
+      els.failEventsStamp.textContent = '更新于 ' + PX.fmtTime();
+      els.failEventsFoot.textContent = '最近 24 小时 ' + (Number(data.count24h) || 0) + ' 条失败事件 · 缓冲共 ' +
+        (Number(data.total) || events.length) + ' 条（上限 ' + events.length + ' 条展示）';
+    }).catch(function (err) {
+      PX.clear(els.failEventsList).appendChild(PX.el('div', { class: 'alert alert--warn' }, [
+        PX.el('span', { icon: 'warn' }),
+        PX.el('span', { text: '失败事件读取失败：' + errorText(err, '未知错误') })
+      ]));
+      els.failEventsFoot.textContent = '读取失败';
+    });
+  }
+
+  function clearFailEvents() {
+    PX.confirm({
+      title: '清空失败事件',
+      message: '将清空内存中的失败事件缓冲（不会删除日志文件），之后新出现的失败仍会继续记录。',
+      okText: '清空',
+      danger: true
+    }).then(function (yes) {
+      if (!yes) return;
+      return PX.api.post('/console/events/clear', {}).then(function (payload) {
+        if (PX.isOk(payload)) PX.toastOk(PX.msgOf(payload, '已清空失败事件'));
+        else PX.toastErr(PX.msgOf(payload, '清空失败'));
+        return loadFailEvents();
+      });
+    }).catch(function (err) {
+      PX.toastErr((err && err.message) || '清空失败事件失败');
+    });
+  }
+
+  /* ---------------------------------------------------------------- *
    * 自动刷新与图表
    * ---------------------------------------------------------------- */
   function startAuto() {
@@ -347,10 +433,16 @@
     els.refreshAll.addEventListener('click', function () {
       loadLocal();
       loadCloud();
+      loadFailEvents();
       PX.toast('已刷新统计数据', { type: 'info', timeout: 1600 });
     });
 
     els.cloudRefresh.addEventListener('click', function () { loadCloud(); });
+    els.failEventsRefresh.addEventListener('click', function () {
+      loadFailEvents();
+      PX.toast('已刷新失败事件', { type: 'info', timeout: 1600 });
+    });
+    els.failEventsClear.addEventListener('click', clearFailEvents);
 
     els.autoRefresh.addEventListener('change', function (ev) {
       state.auto = ev.target.checked;
@@ -388,6 +480,7 @@
     wireToolbar();
     loadLocal();
     loadCloud();
+    loadFailEvents();
     if (state.auto) startAuto();
   }
 

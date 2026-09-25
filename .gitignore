@@ -12,6 +12,9 @@ node_modules
 target
 # 并行构建的隔离输出目录（见根 pom 的 build.suffix）
 target-*
+# 运行期产物：应用日志目录与后台生成的统计报表（见 logback-proxy.xml / admin.report.dir）
+logs/
+report/
 *.bak
 build/*
 go.sum

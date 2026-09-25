@@ -64,6 +64,10 @@ public class OpenApiController {
     @Autowired
     private PayService payService;
 
+    /** 审计日志：站点用户的登录失败必须留痕（用于识别在线爆破） */
+    @Autowired
+    private AuditService auditService;
+
     /**
      * 开放给用得接口
      *
@@ -226,6 +230,7 @@ public class OpenApiController {
             // 【安全修复 J4】按「账号+IP」限流登录失败，防止明文口令被在线爆破
             if (LoginFailureLimiter.isBlocked(username, clientIp)) {
                 log.warn("登录已被临时限流：账号={}，来源IP={}", username, clientIp);
+                auditLoginFail(request, username, "域名登录失败：来源 IP 已被临时限流");
                 return JsonResult.error("登录失败.请尝试重新注册");
             }
             // 【安全修复】原日志把明文密码打进了日志文件，现只保留账号与来源地址
@@ -242,6 +247,7 @@ public class OpenApiController {
                 return JsonResult.ok("登录成功.").put("data", login).put("session", session);
             }
             LoginFailureLimiter.recordFailure(username, clientIp);
+            auditLoginFail(request, username, "域名登录失败：账号、口令或域名校验未通过");
         }
         return JsonResult.error("登录失败.请尝试重新注册");
     }
@@ -263,6 +269,7 @@ public class OpenApiController {
             // 【安全修复 J4】登录失败限流（账号+IP，含IP维度阈值）
             if (LoginFailureLimiter.isBlocked(name, clientIp)) {
                 log.warn("登录已被临时限流：账号={}，来源IP={}", name, clientIp);
+                auditLoginFail(request, name, "登录失败：来源 IP 已被临时限流");
                 return JsonResult.error("登录失败.请尝试重新注册");
             }
             UserVo login = userService.login(name, password.trim(), address);
@@ -280,8 +287,31 @@ public class OpenApiController {
                 return JsonResult.ok("登录成功.").put("data", login).put("session", session);
             }
             LoginFailureLimiter.recordFailure(name, clientIp);
+            auditLoginFail(request, name, "登录失败：账号或口令校验未通过");
         }
         return JsonResult.error("登录失败.请尝试重新注册");
+    }
+
+    /**
+     * 记录一次站点用户登录失败（actorType=user，action=user.login.fail，result=fail）。
+     * <p>
+     * 为什么不记录「口令长度」「口令前几位」等任何派生信息：这些信息同样能显著缩小口令搜索空间，
+     * 属于凭据泄露；因此 detail 只写失败环节（限流 / 凭据不匹配），所有细节来自服务端判定而非用户输入。
+     * <p>
+     * 这里没有 try/catch：{@link AuditService#record} 的契约就是「永不抛异常、永不阻塞」，
+     * 失败只记服务端日志，因此审计不会影响登录主流程。
+     * <p>
+     * 注意「不审计高频只读路径」的取舍在这里不适用：登录失败是安全事件本身，
+     * 即使被爆破放大也应当记录；LoginFailureLimiter 会在若干次失败后直接限流，
+     * 加上 AuditService 的有界队列（写不过来时丢弃并计数），不会把服务拖垮。
+     */
+    private void auditLoginFail(HttpRequest request, String username, String reason) {
+        if (username == null || username.trim().isEmpty()) {
+            // 连账号都没提交的请求不算「登录尝试」，记录它只会污染审计表
+            return;
+        }
+        String actor = username.trim();
+        auditService.record("user", actor, "user.login.fail", actor, reason, "fail", request);
     }
 
     /**

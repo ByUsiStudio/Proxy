@@ -18,9 +18,10 @@ node tools/check-frontend.mjs
 | `go-ids` | Go 控制台每个页面脚本引用的 DOM id 都能在对应 HTML 中找到 |
 | `icons` / `icons-admin` | HTML/JS 中 `data-icon` 使用的图标名都存在于内置图标常量表 |
 | `admin-api` | 后台模板调用的 `Admin.*` API 都由 `static/common/js` 下的自研脚本导出 |
+| `admin-ids` | 后台模板**内联脚本**引用的 DOM id 都能在该模板或 `header.ftl` 中找到 |
 | `sink` | 扫描 `innerHTML` / `insertAdjacentHTML` / `document.write` / `eval` / `new Function` / 内联事件属性；只有「右侧确为内置图标常量」的用法才被放行，其余一律报错 |
 | `extern` | 扫描外部 CDN / 字体 / 图片引用（离线可用性与 CSP 要求） |
-| `ftl-escape` | `proxy-server/template`（后台/站点，17 个）与 `proxy-proxy/template`（节点端，6 个）中未转义的 `${...}` 插值（该框架**不**自动转义，漏转义即 XSS） |
+| `ftl-escape` | `proxy-server/template`（后台/站点）与 `proxy-proxy/template`（节点端）中未转义的 `${...}` 插值（该框架**不**自动转义，漏转义即 XSS） |
 
 > 注意：`ftl-escape` 只覆盖 `proxy-server` 与 `proxy-proxy` 两个模块的
 > `src/main/resources/template` 目录；`proxy-server/src/main/resources/templates/email`
@@ -57,11 +58,31 @@ node tools/qr-verify/compare.mjs
 
 > 首轮实测结果：35/35 一致，其中 4 项仅掩码选择不同、矩阵等价。
 
-## 3. `template-check/` —— FreeMarker 模板语法校验
+## 3. `check-java.mjs` —— Java 注释平衡检查
 
-HServer 只在**真正渲染页面时**才解析 FreeMarker 模板，因此指令拼写错误、
-`<#if>` 未闭合、`<#include>` 路径不对等问题在编译期发现不了，只有用户打开页面才 500。
-本工具用 FreeMarker 官方解析器把模板逐个解析一遍（只解析、不渲染，无需数据模型）。
+```bash
+node tools/check-java.mjs
+```
+
+捕获「一个丢失的块注释结束符，把整段代码吞进注释」这类**编译期完全看不出来**的缺陷。
+本仓库真实发生过一次：某次编辑漏掉了 Javadoc 结尾的结束符，导致
+`@GET("listDevice")` 整个处理器变成注释——javac 编译通过、所有静态检查通过，
+但该路由直接消失、客户端引导接口 404。
+
+判定规则：
+
+| 情况 | 结论 |
+| --- | --- |
+| 文件结束时仍处于块注释中 | **FAIL**（注释未闭合） |
+| Javadoc（`/**` 开头）内出现 `@GET/@POST/@PUT/@DELETE` | **FAIL**（Javadoc 不该包含注解，几乎必然是误吞代码） |
+| 普通块注释（`/*` 开头）内出现路由注解 | INFO（很可能是**有意**注释掉的路由） |
+
+## 4. `template-check/` —— FreeMarker 模板语法与渲染校验
+
+HServer 只在**真正渲染页面时**才解析 FreeMarker 模板，因此模板问题在编译期发现不了。
+两个互补的工具：
+
+### 4.1 `TemplateCheck.java` —— 解析（语法）
 
 ```bash
 FM="$USERPROFILE/.m2/repository/org/freemarker/freemarker/2.3.31/freemarker-2.3.31.jar"
@@ -70,11 +91,27 @@ java -cp "$FM" tools/template-check/TemplateCheck.java \
      proxy-proxy/src/main/resources/template
 ```
 
-退出码：`0` 全部解析通过；`1` 存在语法错误（会打印文件名与错误摘要）。
+立即发现指令拼写错误、`<#if>` 未闭合、`<#include>` 路径不对等语法问题。
 
-> 首轮实测结果：23 个模板全部 OK（含本轮重写的 `admin/log.ftl`、`admin/config.ftl`）。
+### 4.2 `RenderSmoke.java` —— 渲染（求值）
 
-## 4. `../check-tags.ps1` —— 管理后台模板标签平衡
+```bash
+java -cp "$FM" tools/template-check/RenderSmoke.java \
+     proxy-server/src/main/resources/template \
+     proxy-proxy/src/main/resources/template
+```
+
+用「宽松但类型合理」的桩模型把每个模板**真正渲染一遍**，捕获解析阶段看不见的
+求值期错误：`?c` 用在了字符串上、`?size` 用在了非序列上、变量缺默认值、
+拼错的 built-in——这些表现为「打开页面 500」。
+
+桩模型会从 FreeMarker 的报错里**自动学习**每个变量该是什么类型
+（`seq`/`num`/`bool`/`hash`/`str`）并重试，因此不需要人工维护变量表。
+局限：它证明的是「**空数据时不会 500**」，不能替代有数据时的真实回归。
+
+退出码均为 `0` 通过、`1` 存在错误。
+
+## 5. `../check-tags.ps1` —— 管理后台模板标签平衡
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File check-tags.ps1
@@ -83,12 +120,14 @@ powershell -NoProfile -ExecutionPolicy Bypass -File check-tags.ps1
 剥离 FreeMarker 指令后用栈匹配所有非空元素的开闭标签，用于发现
 重构模板时常见的漏闭合标签。
 
-## 5. 建议的执行顺序
+## 6. 建议的执行顺序
 
 ```bash
-node tools/check-frontend.mjs                 # 静态一致性与危险 sink
-powershell -File check-tags.ps1               # 标签平衡
+node tools/check-frontend.mjs                 # 前端一致性与危险 sink / 模板转义 / DOM id
+node tools/check-java.mjs                     # Java 注释平衡（防路由被注释吞掉）
+powershell -File check-tags.ps1               # 模板标签平衡
 java -cp "$FM" tools/template-check/TemplateCheck.java <模板目录...>   # 模板语法
+java -cp "$FM" tools/template-check/RenderSmoke.java <模板目录...>     # 模板渲染（空数据）
 node tools/qr-verify/compare.mjs              # 二维码编码器回归
 ```
 

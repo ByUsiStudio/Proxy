@@ -4,13 +4,16 @@ import cn.hserver.core.ioc.annotation.Autowired;
 import cn.hserver.plugin.web.annotation.Controller;
 import cn.hserver.plugin.web.annotation.GET;
 import cn.hserver.plugin.web.annotation.POST;
+import cn.hserver.plugin.web.interfaces.HttpRequest;
 import cn.hserver.plugin.web.interfaces.HttpResponse;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import miao.byusi.hp.server.domian.entity.ConfigEntity;
 import miao.byusi.hp.server.domian.entity.UserEntity;
+import miao.byusi.hp.server.service.AuditService;
 import miao.byusi.hp.server.service.ConfigService;
 import miao.byusi.hp.server.service.UserService;
+import miao.byusi.hp.server.utils.AdminAudit;
 import miao.byusi.hp.server.utils.ExportUtil;
 import miao.byusi.hp.server.utils.SafeInputUtil;
 import org.beetl.sql.core.page.PageResult;
@@ -64,6 +67,15 @@ public class AutoConfigController {
 
     @Autowired
     private UserService userService;
+
+    /**
+     * 审计服务：导入 / 批量删除 / 单条删除都写审计
+     * （action=config.import / config.batchRemove / config.remove）。
+     * <b>摘要里绝不回显导入请求体</b>——payload 是调用方提交的任意文本，
+     * 可能夹带凭据或超长内容，写进审计等于把风险复制一份。
+     */
+    @Autowired
+    private AuditService auditService;
 
     @GET("/admin/config")
     public void log(Integer page, String username, String deviceId, HttpResponse response) {
@@ -126,12 +138,15 @@ public class AutoConfigController {
      * 每条记录字段：username / deviceId / userHost / serverHost / type / domain / port。
      */
     @POST("/admin/config/import")
-    public void importConfig(String payload, HttpResponse response) {
+    public void importConfig(String payload, HttpResponse response, HttpRequest request) {
         if (payload == null || payload.trim().isEmpty()) {
+            AdminAudit.record(auditService, request, "config.import", "", "导入内容为空", false);
             response.sendJson(error("请粘贴或选择要导入的 JSON 配置"));
             return;
         }
         if (payload.length() > MAX_IMPORT_CHARS) {
+            AdminAudit.record(auditService, request, "config.import", "",
+                    "导入内容过大（" + payload.length() + " 字符）", false);
             response.sendJson(error("导入内容过大，单次最多 " + (MAX_IMPORT_CHARS / 1024) + " KB"));
             return;
         }
@@ -140,6 +155,8 @@ public class AutoConfigController {
         try {
             root = MAPPER.readTree(payload);
         } catch (Exception e) {
+            // 只记「不是合法 JSON」，不把 payload 写进审计
+            AdminAudit.record(auditService, request, "config.import", "", "导入内容不是合法 JSON", false);
             response.sendJson(error("配置内容不是合法的 JSON"));
             return;
         }
@@ -152,14 +169,18 @@ public class AutoConfigController {
             }
         }
         if (array == null || !array.isArray()) {
+            AdminAudit.record(auditService, request, "config.import", "", "缺少 tunnels 数组", false);
             response.sendJson(error("配置内容缺少 tunnels 数组"));
             return;
         }
         if (array.size() == 0) {
+            AdminAudit.record(auditService, request, "config.import", "", "配置中没有可导入的条目", false);
             response.sendJson(error("配置中没有可导入的条目"));
             return;
         }
         if (array.size() > MAX_ROWS) {
+            AdminAudit.record(auditService, request, "config.import", "",
+                    "超过单次导入上限（" + array.size() + " > " + MAX_ROWS + "）", false);
             response.sendJson(error("单次最多导入 " + MAX_ROWS + " 条配置"));
             return;
         }
@@ -175,6 +196,8 @@ public class AutoConfigController {
             }
         }
         if (parsed.isEmpty()) {
+            AdminAudit.record(auditService, request, "config.import", "",
+                    "没有合法条目可导入，非法 " + failures.size() + " 条", false);
             Map<String, Object> result = error("没有合法条目可导入");
             result.put("failures", failures);
             response.sendJson(result);
@@ -186,10 +209,15 @@ public class AutoConfigController {
             stat = configService.importBatch(parsed);
         } catch (Exception e) {
             log.error("导入自动穿透配置失败：{}", e.getMessage());
+            AdminAudit.record(auditService, request, "config.import", "",
+                    "导入异常：提交 " + parsed.size() + " 条合法条目", false);
             response.sendJson(error("导入失败，请稍后重试"));
             return;
         }
         log.info("后台导入自动穿透配置：新增 {} 条，跳过 {} 条，非法 {} 条", stat[0], stat[1], failures.size());
+        // 只写计数，不回显请求体（铁律：payload 可能夹带凭据）
+        AdminAudit.record(auditService, request, "config.import", "",
+                "新增 " + stat[0] + " 条，跳过 " + stat[1] + " 条，失败 " + failures.size() + " 条", true);
 
         Map<String, Object> ok = new HashMap<>(6);
         ok.put("code", 200);
@@ -204,9 +232,10 @@ public class AutoConfigController {
      * 批量删除配置。
      */
     @POST("/admin/config/batchRemove")
-    public void batchRemove(String ids, HttpResponse response) {
+    public void batchRemove(String ids, HttpResponse response, HttpRequest request) {
         List<String> list = ExportUtil.parseIds(ids, MAX_BATCH_DELETE);
         if (list.isEmpty()) {
+            AdminAudit.record(auditService, request, "config.batchRemove", "", "未选择要删除的配置", false);
             response.sendJson(error("未选择要删除的配置"));
             return;
         }
@@ -215,10 +244,14 @@ public class AutoConfigController {
             removed = configService.removeBatch(list);
         } catch (Exception e) {
             log.error("批量删除自动穿透配置失败：{}", e.getMessage());
+            AdminAudit.record(auditService, request, "config.batchRemove", "",
+                    "批量删除异常：请求 " + list.size() + " 条", false);
             response.sendJson(error("批量删除失败"));
             return;
         }
         log.info("后台批量删除自动穿透配置 {} 条（请求 {} 条）", removed, list.size());
+        AdminAudit.record(auditService, request, "config.batchRemove", "",
+                "请求 " + list.size() + " 条，删除 " + removed + " 条", true);
         Map<String, Object> ok = new HashMap<>(4);
         ok.put("code", 200);
         ok.put("msg", "已删除 " + removed + " 条配置");
@@ -227,9 +260,18 @@ public class AutoConfigController {
     }
 
     @GET("/admin/config/remove")
-    public void remove(Integer page, HttpResponse response, String id) {
+    public void remove(Integer page, HttpResponse response, String id, HttpRequest request) {
         if (id != null) {
-            configService.remove(id);
+            // 与 /admin/log/remove 同理：GET 链接触发的状态变更同样必须留痕
+            boolean removed;
+            try {
+                removed = configService.remove(id);
+            } catch (RuntimeException e) {
+                AdminAudit.record(auditService, request, "config.remove", id, "删除异常", false);
+                throw e;
+            }
+            AdminAudit.record(auditService, request, "config.remove", id,
+                    removed ? "删除自动穿透配置" : "配置不存在或已被删除", removed);
         }
         log(page, null, null, response);
     }

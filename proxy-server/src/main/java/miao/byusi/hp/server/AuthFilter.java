@@ -9,7 +9,9 @@ import miao.byusi.hp.server.config.WebConfig;
 import cn.hserver.core.ioc.annotation.Autowired;
 import cn.hserver.core.ioc.annotation.Bean;
 import miao.byusi.hp.server.domian.entity.UserEntity;
+import miao.byusi.hp.server.service.AuditService;
 import miao.byusi.hp.server.service.UserService;
+import miao.byusi.hp.server.utils.AdminAudit;
 import miao.byusi.hp.server.utils.AdminSessionStore;
 import miao.byusi.hp.server.utils.NetUtil;
 import miao.byusi.hp.server.utils.SafeInputUtil;
@@ -32,6 +34,14 @@ public class AuthFilter implements FilterAdapter {
     private UserService userService;
 
     /**
+     * 审计服务：用于记录「被拦下的后台请求」这类安全事件。
+     * <p>
+     * AuditService#record 是非阻塞、有界队列、永不抛异常的，因此可以放心地放在过滤器热路径上。
+     */
+    @Autowired
+    private AuditService auditService;
+
+    /**
      * 管理后台中允许使用 GET 的只读页面（其余 admin 路由必须使用 POST/PUT/DELETE）。
      * <p>
      * 只读的导出/聚合接口也在此列：它们不改变服务端状态，
@@ -51,7 +61,7 @@ public class AuthFilter implements FilterAdapter {
             "/admin/syslog", "/admin/syslog/list", "/admin/syslog/view", "/admin/syslog/download",
             "/admin/quota", "/admin/quota/export",
             "/admin/template", "/admin/template/export",
-            "/admin/report", "/admin/report/download",
+            "/admin/report", "/admin/report/download", "/admin/report/data",
             "/admin/search"
     ));
 
@@ -163,6 +173,7 @@ public class AuthFilter implements FilterAdapter {
             // <a href> 导航不会带 Origin、也无法携带自定义头，因此两者都缺失时仍需放行（否则模板失效）；
             // 但只要浏览器给出了 Origin/Referer，就必须严格同源，跨站构造的 GET 会被拒绝。
             if (hasOriginHint(request) && !sameOrigin(request)) {
+                auditBlocked(request, uri, "跨站 GET 变更请求被拒绝（403）");
                 webkit.httpResponse.sendStatusCode(io.netty.handler.codec.http.HttpResponseStatus.FORBIDDEN);
                 webkit.httpResponse.sendText("");
                 return false;
@@ -172,17 +183,52 @@ public class AuthFilter implements FilterAdapter {
         if (HttpMethod.GET.equals(method) || HttpMethod.HEAD.equals(method)) {
             // 注意：sendStatusCode 只设置状态码，不会让框架 hasData()=true 从而中断请求，
             // 必须同时写出响应体，否则控制器仍会执行。
+            auditBlocked(request, uri, "只读白名单外使用 GET/HEAD 被拒绝（405）");
             webkit.httpResponse.sendStatusCode(io.netty.handler.codec.http.HttpResponseStatus.METHOD_NOT_ALLOWED);
             webkit.httpResponse.sendText("");
             return false;
         }
         // 4) 强制 Origin/Referer 校验（缺失时要求 X-Requested-With: XMLHttpRequest）
         if (!sameOrigin(request)) {
+            auditBlocked(request, uri, "状态变更请求同源校验失败被拒绝（403）");
             webkit.httpResponse.sendStatusCode(io.netty.handler.codec.http.HttpResponseStatus.FORBIDDEN);
             webkit.httpResponse.sendText("");
             return false;
         }
         return true;
+    }
+
+    /**
+     * 记录一条「后台请求被拦下」的安全事件。
+     * <p>
+     * 只审计真正异常的两类拒绝（跨站来源 / 方法不被允许），
+     * <b>不审计「会话缺失或已过期」</b>：会话过期后浏览器仍会带旧 Cookie 访问页面，
+     * 属于正常使用路径，逐条留痕只会在审计表里刷屏
+     * （与「不给高频只读路径写审计」是同一个理由）。
+     * <p>
+     * detail 里带上 Origin/Referer 便于事后溯源：它是攻击者可控文本，但
+     * AuditService 会去掉控制字符、抹掉疑似凭据并截断，
+     * 模板侧也一律以 ?html 转义渲染，因此不构成注入面。
+     */
+    private void auditBlocked(HttpRequest request, String uri, String reason) {
+        try {
+            String source = request.getHeader("origin");
+            if (source == null || source.trim().isEmpty()) {
+                source = request.getHeader("referer");
+            }
+            String detail = reason;
+            if (source != null && !source.trim().isEmpty()) {
+                String trimmed = source.trim();
+                if (trimmed.length() > 120) {
+                    trimmed = trimmed.substring(0, 120);
+                }
+                detail = reason + "（来源：" + trimmed + "）";
+            }
+            auditService.record(AdminAudit.ACTOR_TYPE, AdminAudit.ACTOR, "admin.request.blocked",
+                    uri, detail, "fail", request);
+        } catch (Throwable ignored) {
+            // 审计失败绝不影响拦截行为本身
+        }
     }
 
     /**

@@ -31,6 +31,9 @@
             <button type="button" class="btn btn--ghost" id="checkCore">
               <span data-icon="cpu"></span><span class="hide-sm">检查内核</span>
             </button>
+            <button type="button" class="btn btn--ghost" id="diagnoseBtn">
+              <span data-icon="stethoscope"></span><span class="hide-sm">一键诊断</span>
+            </button>
             <button type="button" class="btn btn--ghost" id="refreshBtn">
               <span data-icon="refresh"></span><span class="hide-sm">刷新</span>
             </button>
@@ -194,6 +197,26 @@
       <div class="modal__body" id="infoBody"></div>
       <div class="modal__foot">
         <button type="button" class="btn btn--ghost" id="infoOk">知道了</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 一键诊断 -->
+  <div class="modal" id="diagnoseModal" role="dialog" aria-modal="true" aria-labelledby="diagnoseTitle">
+    <div class="modal__panel modal__panel--wide">
+      <div class="modal__head">
+        <h3 class="modal__title" id="diagnoseTitle">一键诊断</h3>
+        <button type="button" class="btn btn--ghost btn--icon" id="diagnoseClose" aria-label="关闭">
+          <span data-icon="close"></span>
+        </button>
+      </div>
+      <div class="modal__body" id="diagnoseBody"></div>
+      <div class="modal__foot">
+        <span class="text-xs faint" id="diagnoseFoot"></span>
+        <button type="button" class="btn btn--ghost" id="diagnoseCopy">
+          <span data-icon="copy"></span><span>复制诊断报告</span>
+        </button>
+        <button type="button" class="btn btn--ghost" id="diagnoseOk">关闭</button>
       </div>
     </div>
   </div>

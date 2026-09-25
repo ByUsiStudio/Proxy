@@ -81,6 +81,45 @@
 
         <section class="card">
           <div class="card__head">
+            <h2 class="card__title"><span data-icon="filter"></span>运行时日志级别</h2>
+            <span class="badge badge--muted" id="logLevelBadge" role="status">读取中…</span>
+          </div>
+          <div class="card__body stack">
+            <div class="row row--between">
+              <div class="grow">
+                <div class="text-sm bold">当前进程日志级别</div>
+                <div class="text-xs muted mt-2">
+                  修改立即生效，同时作用于标准输出与日志文件（历史文件不会重写）。级别越低日志越多：
+                  debug 适合排障，长期开启会加快日志轮转并占用更多磁盘。
+                </div>
+              </div>
+              <div class="seg" id="logLevelSeg" role="group" aria-label="运行时日志级别">
+                <button type="button" class="seg__item" data-level="debug" aria-pressed="false">debug</button>
+                <button type="button" class="seg__item is-active" data-level="info" aria-pressed="true">info</button>
+                <button type="button" class="seg__item" data-level="warn" aria-pressed="false">warn</button>
+                <button type="button" class="seg__item" data-level="error" aria-pressed="false">error</button>
+              </div>
+            </div>
+            <div class="alert alert--info">
+              <span data-icon="info"></span>
+              <div class="stack">
+                <div>这是<span class="bold">运行时开关</span>，刻意不写入磁盘：重启后会回到启动参数（<span class="mono">-logLevel</span>）指定的级别。</div>
+                <div>接口 <span class="mono">POST /console/log-level</span> 有频率限制，切换后返回新的级别状态。</div>
+              </div>
+            </div>
+          </div>
+          <div class="card__foot">
+            <div class="toolbar">
+              <button type="button" class="btn btn--ghost btn--sm" id="logLevelRefresh">
+                <span data-icon="refresh"></span><span>刷新级别</span>
+              </button>
+              <span class="text-xs faint" id="logLevelFoot">正在读取当前级别…</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card__head">
             <h2 class="card__title"><span data-icon="share"></span>配置导出 / 导入 / 分享</h2>
             <span class="card__hint">用于迁移或分享隧道配置</span>
           </div>

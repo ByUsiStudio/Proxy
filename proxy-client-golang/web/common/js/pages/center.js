@@ -47,7 +47,9 @@
       'ip', 'port', 'typeRadios', 'serverRadios', 'domainRadios', 'portRadios',
       'serverField', 'customServerField', 'customServer', 'domainField',
       'infoModal', 'infoTitle', 'infoBody', 'infoClose', 'infoOk', 'checkCore',
-      'refreshBtn', 'logPreview'
+      'refreshBtn', 'logPreview',
+      'diagnoseBtn', 'diagnoseModal', 'diagnoseClose', 'diagnoseOk', 'diagnoseBody',
+      'diagnoseCopy', 'diagnoseFoot'
     ].forEach(function (id) { els[id] = byId(id); });
   }
 
@@ -304,6 +306,212 @@
   }
 
   /* ---------------------------------------------------------------- *
+   * 一键诊断
+   *     服务端 GET /console/diagnose 返回结构化报告；所有文本（域名、错误消息）
+   *     都可能来自远端，因此只允许用 textContent 渲染。
+   * ---------------------------------------------------------------- */
+  var diagnoseState = { report: null };
+
+  // 结论状态 → 徽章样式；与服务端返回的 ok/warn/fail 一一对应。
+  var DIAG_BADGE = { ok: 'badge--ok', warn: 'badge--warn', fail: 'badge--down' };
+
+  function diagBadge(status) {
+    return PX.el('span', {
+      class: 'badge ' + (DIAG_BADGE[status] || 'badge--muted'),
+      text: String(status || 'unknown')
+    });
+  }
+
+  function diagRow(label, value, status) {
+    var valueNode = value instanceof Node
+      ? value
+      : PX.el('span', { class: 'text-sm', style: { textAlign: 'right' }, text: String(value === undefined || value === null ? '—' : value) });
+    return PX.el('div', { class: 'row row--between' }, [
+      PX.el('span', { class: 'muted text-sm', text: label }),
+      PX.el('span', { class: 'row', style: { gap: '0.5rem', justifyContent: 'flex-end' } }, [
+        valueNode,
+        status ? diagBadge(status) : null
+      ])
+    ]);
+  }
+
+  function diagSection(title, rows) {
+    return PX.el('div', { class: 'stack' }, [
+      PX.el('div', { class: 'text-sm bold', text: title }),
+      PX.el('div', { class: 'stack' }, rows)
+    ]);
+  }
+
+  /** 把结构化报告渲染成 DOM；纯文本节点，无任何 HTML 拼接。 */
+  function renderDiagnose(report) {
+    var host = report.host || {};
+    var cloud = report.cloud || {};
+    var config = report.config || {};
+    var summary = report.summary || {};
+    var tunnels = Array.isArray(report.tunnels) ? report.tunnels : [];
+
+    var nodes = [];
+
+    nodes.push(PX.el('div', { class: 'row row--between' }, [
+      PX.el('span', { class: 'text-xs faint', text: '生成时间 ' + String(report.generatedAt || '—') + ' · 预算 ' + String(report.budgetMs || 0) + 'ms' }),
+      PX.el('span', { class: 'row', style: { gap: '0.4rem' } }, [
+        PX.el('span', { class: 'badge badge--ok', text: '正常 ' + (summary.ok || 0) }),
+        PX.el('span', { class: 'badge badge--warn', text: '警告 ' + (summary.warn || 0) }),
+        PX.el('span', { class: 'badge badge--down', text: '失败 ' + (summary.fail || 0) })
+      ])
+    ]));
+
+    // 1. 本机服务
+    nodes.push(diagSection('本机服务', [
+      diagRow('控制台版本', String(host.coreVersion || '—') + ' · ' + String(host.consoleAddress || '—')),
+      diagRow('设备 ID', String(host.deviceId || '—')),
+      diagRow('隧道数量', String(host.tunnelCount || 0) + ' / ' + String(host.tunnelLimit || 0) + '（在线 ' + String(host.onlineCount || 0) + '）'),
+      diagRow('goroutine 数量', String(host.goroutines || 0)),
+      diagRow('日志通道连接', String(host.wsClients || 0))
+    ]));
+
+    // 2. 云端可达性
+    nodes.push(diagSection('云端可达性', [
+      diagRow('云端地址', String(cloud.url || '未配置')),
+      diagRow('探测结果', String(cloud.detail || '—'), cloud.status)
+    ]));
+
+    // 3. 每条隧道
+    var tunnelRows = [];
+    if (!tunnels.length) {
+      tunnelRows.push(PX.el('div', { class: 'text-xs muted', text: '当前没有隧道' }));
+    } else {
+      tunnels.forEach(function (t) {
+        var target = String(t.target || '—');
+        var detail = String(t.dialDetail || '');
+        var row = PX.el('div', { class: 'stack diag-tunnel' }, [
+          PX.el('div', { class: 'row row--between' }, [
+            PX.el('span', { class: 'mono text-sm truncate', title: String(t.domain || ''), text: String(t.domain || '—') }),
+            PX.el('span', { class: 'row', style: { gap: '0.4rem' } }, [
+              PX.el('span', { class: 'badge badge--muted', text: String(t.type || 'TCP') }),
+              diagBadge(t.status)
+            ])
+          ]),
+          PX.el('div', { class: 'text-xs muted', text: '目标 ' + target + ' · 服务器 ' + String(t.server || '—') }),
+          PX.el('div', { class: 'text-xs muted nums', text: '连接 ' + (Number(t.connCount) || 0) +
+            ' · 入站 ' + PX.fmtBytes(t.inBytes) + ' · 出站 ' + PX.fmtBytes(t.outBytes) +
+            ' · 运行 ' + PX.fmtDuration(t.uptime) }),
+          PX.el('div', { class: 'text-xs', text: detail })
+        ]);
+        tunnelRows.push(row);
+      });
+    }
+    nodes.push(diagSection('隧道检查（最多 ' + tunnels.length + ' 条）' +
+      (report.tunnelProbeTruncated ? ' · 已按上限截断' : ''), tunnelRows));
+
+    // 4. 配置与环境
+    var hints = Array.isArray(config.hints) ? config.hints : [];
+    nodes.push(diagSection('配置与环境', [
+      diagRow('日志目录', String(config.logDir || '—') + '（' + (config.logWritable ? '可写' : '不可写') + '）',
+        config.logWritable ? 'ok' : 'fail'),
+      diagRow('日志级别 / 上限', String(config.logLevel || '—') + ' · ' + PX.fmtBytes(config.logMaxBytes) + ' · 保留 ' + String(config.logKeep || 0)),
+      diagRow('SSL', config.sslEnabled ? '已启用' : '未启用', config.sslInsecureSkip ? 'warn' : 'ok'),
+      diagRow('访问令牌强制', config.tokenEnforced ? '已启用' : '未启用（仅本机）', config.tokenEnforced ? 'ok' : 'warn'),
+      diagRow('监听地址', String(config.bindHost || '默认回环') + (config.loopbackOnly ? '（回环）' : '（非回环）'),
+        config.loopbackOnly ? 'ok' : 'warn'),
+      diagRow('WEB_ALLOWED_HOSTS', config.allowedHostsConfigured
+        ? (Array.isArray(config.allowedHosts) ? config.allowedHosts.join('、') : '已配置')
+        : '未配置', config.allowedHostsConfigured ? 'ok' : 'warn'),
+      config.logError ? diagRow('日志告警', String(config.logError), 'warn') : null,
+      config.sslWarn ? diagRow('SSL 告警', String(config.sslWarn), 'warn') : null
+    ].concat(hints.map(function (hint) {
+      return PX.el('div', { class: 'text-xs', text: '提示：' + String(hint) });
+    }))));
+
+    return PX.el('div', { class: 'stack' }, nodes);
+  }
+
+  /** 生成纯文本版诊断报告（用于「复制诊断报告」）。 */
+  function diagnoseText(report) {
+    var lines = [];
+    var host = report.host || {};
+    var cloud = report.cloud || {};
+    var config = report.config || {};
+    var summary = report.summary || {};
+
+    lines.push('Proxy 客户端诊断报告 ' + String(report.generatedAt || ''));
+    lines.push('汇总: 正常 ' + (summary.ok || 0) + ' / 警告 ' + (summary.warn || 0) + ' / 失败 ' + (summary.fail || 0));
+    lines.push('');
+    lines.push('[本机服务]');
+    lines.push('  控制台版本: ' + String(host.coreVersion || '-') + '  地址: ' + String(host.consoleAddress || '-'));
+    lines.push('  设备 ID: ' + String(host.deviceId || '-'));
+    lines.push('  隧道: ' + String(host.tunnelCount || 0) + '/' + String(host.tunnelLimit || 0) + '  在线: ' + String(host.onlineCount || 0));
+    lines.push('  goroutine: ' + String(host.goroutines || 0) + '  日志通道连接: ' + String(host.wsClients || 0));
+    lines.push('');
+    lines.push('[云端可达性] ' + String(cloud.status || '-'));
+    lines.push('  ' + String(cloud.url || '未配置') + ' -> ' + String(cloud.detail || '-'));
+    lines.push('');
+    lines.push('[隧道检查]');
+    var tunnels = Array.isArray(report.tunnels) ? report.tunnels : [];
+    if (!tunnels.length) lines.push('  （无隧道）');
+    tunnels.forEach(function (t) {
+      lines.push('  - ' + String(t.domain || '-') + ' [' + String(t.status || '-') + '] ' +
+        String(t.type || '') + ' 目标 ' + String(t.target || '-') + ' 服务器 ' + String(t.server || '-'));
+      lines.push('    连接 ' + (Number(t.connCount) || 0) + ' 入站 ' + PX.fmtBytes(t.inBytes) +
+        ' 出站 ' + PX.fmtBytes(t.outBytes) + ' 运行 ' + PX.fmtDuration(t.uptime));
+      lines.push('    ' + String(t.dialDetail || ''));
+    });
+    if (report.tunnelProbeTruncated) lines.push('  （探测数量已达上限，未覆盖全部隧道）');
+    lines.push('');
+    lines.push('[配置与环境]');
+    lines.push('  日志目录: ' + String(config.logDir || '-') + ' 可写: ' + (config.logWritable ? '是' : '否') +
+      ' 级别: ' + String(config.logLevel || '-'));
+    lines.push('  日志上限: ' + PX.fmtBytes(config.logMaxBytes) + ' 保留: ' + String(config.logKeep || 0));
+    lines.push('  SSL: ' + (config.sslEnabled ? '启用' : '未启用') + ' 跳过验证: ' + (config.sslInsecureSkip ? '是' : '否'));
+    lines.push('  访问令牌强制: ' + (config.tokenEnforced ? '是' : '否'));
+    lines.push('  监听地址: ' + String(config.bindHost || '默认回环') + ' 仅回环: ' + (config.loopbackOnly ? '是' : '否'));
+    lines.push('  WEB_ALLOWED_HOSTS: ' + (Array.isArray(config.allowedHosts) && config.allowedHosts.length
+      ? config.allowedHosts.join(', ') : '未配置'));
+    if (config.logError) lines.push('  日志告警: ' + String(config.logError));
+    if (config.sslWarn) lines.push('  SSL 告警: ' + String(config.sslWarn));
+    var hints = Array.isArray(config.hints) ? config.hints : [];
+    hints.forEach(function (hint) { lines.push('  提示: ' + String(hint)); });
+    return lines.join('\n');
+  }
+
+  function runDiagnose() {
+    els.diagnoseBtn.disabled = true;
+    PX.clear(els.diagnoseBody).appendChild(PX.el('div', { class: 'text-sm muted', text: '正在诊断，请稍候（最多 10 秒）…' }));
+    els.diagnoseFoot.textContent = '';
+    PX.modal.open(els.diagnoseModal);
+
+    PX.api.send('/console/diagnose', { method: 'GET' }).then(function (res) {
+      if (!res.ok) {
+        throw new PX.ApiError((res.data && (res.data.Msg || res.data.msg)) || ('诊断失败（HTTP ' + res.status + '）'), res.status, res.data);
+      }
+      var report = res.data && typeof res.data === 'object' ? res.data : {};
+      diagnoseState.report = report;
+      PX.clear(els.diagnoseBody).appendChild(renderDiagnose(report));
+      var summary = report.summary || {};
+      els.diagnoseFoot.textContent = '完成于 ' + PX.fmtTime() + ' · 耗时 ' + String(summary.elapsedMs || 0) + 'ms';
+      if ((summary.fail || 0) > 0) PX.toastWarn('诊断完成：发现 ' + summary.fail + ' 项失败');
+      else PX.toastOk('诊断完成：未发现失败项');
+    }).catch(function (err) {
+      PX.clear(els.diagnoseBody).appendChild(PX.el('div', { class: 'alert alert--danger' }, [
+        PX.el('span', { icon: 'warn' }),
+        PX.el('span', { text: '诊断失败：' + ((err && err.message) || '未知错误') })
+      ]));
+      els.diagnoseFoot.textContent = '诊断失败';
+      PX.toastErr((err && err.message) || '诊断失败');
+    }).then(function () {
+      els.diagnoseBtn.disabled = false;
+    });
+  }
+
+  function copyDiagnose() {
+    if (!diagnoseState.report) {
+      PX.toastWarn('请先执行一键诊断');
+      return;
+    }
+    PX.copy(diagnoseText(diagnoseState.report));
+  }
+
+  /* ---------------------------------------------------------------- *
    * 添加穿透表单
    * ---------------------------------------------------------------- */
   function radioGroup(host, name, options, selected) {
@@ -505,6 +713,7 @@
       PX.toast('已刷新隧道列表', { type: 'info', timeout: 1600 });
     });
     els.checkCore.addEventListener('click', checkCore);
+    els.diagnoseBtn.addEventListener('click', runDiagnose);
     els.exportBtn.addEventListener('click', exportConfig);
     els.batchStop.addEventListener('click', batchStop);
 
@@ -566,6 +775,13 @@
     els.infoClose.addEventListener('click', function () { PX.modal.close(els.infoModal); });
     els.infoOk.addEventListener('click', function () { PX.modal.close(els.infoModal); });
     els.infoModal.addEventListener('click', function (ev) { if (ev.target === els.infoModal) PX.modal.close(els.infoModal); });
+
+    els.diagnoseClose.addEventListener('click', function () { PX.modal.close(els.diagnoseModal); });
+    els.diagnoseOk.addEventListener('click', function () { PX.modal.close(els.diagnoseModal); });
+    els.diagnoseModal.addEventListener('click', function (ev) {
+      if (ev.target === els.diagnoseModal) PX.modal.close(els.diagnoseModal);
+    });
+    els.diagnoseCopy.addEventListener('click', copyDiagnose);
   }
 
   function init() {

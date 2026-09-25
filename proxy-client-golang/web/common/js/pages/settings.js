@@ -23,7 +23,8 @@
       'withSecrets', 'secretWarn', 'exportText', 'exportMeta', 'exportBtn', 'qrBtn',
       'downloadBtn', 'copyBtn', 'qrBox', 'qrImg', 'qrMeta', 'qrWarn', 'qrWarnText',
       'importText', 'importFile', 'importBtn', 'importResult',
-      'tunnelCount', 'stopAllBtn', 'clearLoginBtn'
+      'tunnelCount', 'stopAllBtn', 'clearLoginBtn',
+      'logLevelSeg', 'logLevelBadge', 'logLevelRefresh', 'logLevelFoot'
     ].forEach(function (id) { els[id] = byId(id); });
   }
 
@@ -153,6 +154,72 @@
     }).catch(function (err) {
       if (err && err.message === '已取消') return;
       PX.toastErr(err && err.message ? err.message : '验证失败');
+    });
+  }
+
+  /* ---------------------------------------------------------------- *
+   * 卡片 2.5：运行时日志级别
+   * ---------------------------------------------------------------- */
+  var LOG_LEVELS = ['debug', 'info', 'warn', 'error'];
+
+  /** 同步分段控件的高亮状态（只按已知级别名匹配）。 */
+  function syncLevelSeg(level) {
+    var current = LOG_LEVELS.indexOf(level) === -1 ? 'info' : level;
+    PX.$$('.seg__item', els.logLevelSeg).forEach(function (node) {
+      var active = node.getAttribute('data-level') === current;
+      node.classList.toggle('is-active', active);
+      node.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+    els.logLevelBadge.className = 'badge ' + (current === 'debug' ? 'badge--warn' : 'badge--ok');
+    els.logLevelBadge.textContent = current;
+  }
+
+  function renderLevelState(data) {
+    var level = data && data.level ? String(data.level) : 'info';
+    syncLevelSeg(level);
+    els.logLevelFoot.textContent = '当前 ' + level +
+      '（级别值 ' + (data && data.levelValue !== undefined ? data.levelValue : '—') + '）· 更新于 ' + PX.fmtTime();
+  }
+
+  function loadLogLevel() {
+    els.logLevelFoot.textContent = '正在读取当前级别…';
+    return PX.api.get('/console/log-level').then(function (payload) {
+      if (!PX.isOk(payload)) throw new PX.ApiError(PX.msgOf(payload, '日志级别读取失败'), 200, payload);
+      renderLevelState(payload.Data || {});
+      return payload.Data || {};
+    }).catch(function (err) {
+      els.logLevelFoot.textContent = '级别读取失败';
+      // 读取失败不弹 Toast 刷屏：设置页还有其它状态要读，静默降级即可。
+      return null;
+    });
+  }
+
+  function setLogLevel(level) {
+    if (LOG_LEVELS.indexOf(level) === -1) return;
+    PX.$$('.seg__item', els.logLevelSeg).forEach(function (node) { node.disabled = true; });
+    PX.api.post('/console/log-level', { level: level }).then(function (payload) {
+      if (!PX.isOk(payload)) throw new PX.ApiError(PX.msgOf(payload, '日志级别设置失败'), 200, payload);
+      renderLevelState(payload.Data || {});
+      PX.toastOk('日志级别已切换为 ' + ((payload.Data && payload.Data.level) || level));
+    }).catch(function (err) {
+      PX.toastErr((err && err.message) || '日志级别设置失败');
+      // 失败时回读一次真实状态，避免界面停留在错误的选中项上。
+      loadLogLevel();
+    }).then(function () {
+      PX.$$('.seg__item', els.logLevelSeg).forEach(function (node) { node.disabled = false; });
+    });
+  }
+
+  function wireLogLevel() {
+    PX.$$('.seg__item', els.logLevelSeg).forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        setLogLevel(btn.getAttribute('data-level') || 'info');
+      });
+    });
+    els.logLevelRefresh.addEventListener('click', function () {
+      loadLogLevel().then(function (data) {
+        if (data) PX.toast('日志级别已刷新', { type: 'info', timeout: 1600 });
+      });
     });
   }
 
@@ -532,6 +599,8 @@
 
     els.stopAllBtn.addEventListener('click', stopAllTunnels);
     els.clearLoginBtn.addEventListener('click', clearLocalLogin);
+
+    wireLogLevel();
   }
 
   function init() {
@@ -544,6 +613,7 @@
     wire();
     loadConsoleInfo();
     loadTunnelCount();
+    loadLogLevel();
   }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);

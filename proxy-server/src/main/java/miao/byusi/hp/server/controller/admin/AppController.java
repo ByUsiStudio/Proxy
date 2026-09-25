@@ -8,6 +8,8 @@ import cn.hserver.plugin.web.interfaces.HttpRequest;
 import cn.hserver.plugin.web.interfaces.HttpResponse;
 import miao.byusi.hp.server.domian.entity.AppEntity;
 import miao.byusi.hp.server.service.AppService;
+import miao.byusi.hp.server.service.AuditService;
+import miao.byusi.hp.server.utils.AdminAudit;
 import org.beetl.sql.core.page.PageResult;
 import cn.hserver.core.ioc.annotation.Autowired;
 import org.slf4j.Logger;
@@ -22,6 +24,11 @@ import java.util.Map;
 
 /**
  * @author hxm
+ * <p>
+ * 【审计】app 版本的新增 / 安装包上传 / 删除写审计
+ * （app.add / app.upload / app.remove）。
+ * 上传失败（大小、后缀、魔数不合规）同样留痕：安装包替换是只读接口之外最敏感的操作之一，
+ * 「谁尝试上传了一个不合规的文件」本身就是需要排查的信号。detail 只记录大小与原因，不记录文件内容。
  */
 @Controller
 public class AppController {
@@ -36,6 +43,9 @@ public class AppController {
 
     @Autowired
     private AppService appService;
+
+    @Autowired
+    private AuditService auditService;
 
     @GET("/admin/app")
     public void index(Integer page, HttpResponse response) {
@@ -53,12 +63,21 @@ public class AppController {
     }
 
     @POST("/admin/app/add")
-    public void add(Integer page, HttpResponse response, AppEntity appEntity) {
-        try {
-            if (appEntity != null && appEntity.getVersionCode().trim().length() > 0 && appEntity.getUpdateContent().trim().length() > 0) {
+    public void add(Integer page, HttpResponse response, AppEntity appEntity, HttpRequest request) {
+        String target = appEntity == null || appEntity.getVersionCode() == null ? "" : appEntity.getVersionCode().trim();
+        String detail = appEntity == null ? "新增 app 版本"
+                : "更新说明长度=" + (appEntity.getUpdateContent() == null ? 0 : appEntity.getUpdateContent().length());
+        if (appEntity != null && target.length() > 0 && appEntity.getUpdateContent() != null
+                && appEntity.getUpdateContent().trim().length() > 0) {
+            try {
                 appService.add(appEntity);
+                AdminAudit.record(auditService, request, "app.add", target, detail, true);
+            } catch (Exception e) {
+                AdminAudit.record(auditService, request, "app.add", target, detail, false);
+                log.warn("新增 app 版本失败：{}", e.getMessage());
             }
-        } catch (Exception ignored) {
+        } else {
+            AdminAudit.record(auditService, request, "app.add", target, "参数不完整，未写入", false);
         }
         index(page, response);
     }
@@ -69,22 +88,29 @@ public class AppController {
         // 【安全修复】原实现 apk 为 null 时直接 NPE，且把客户端文件名交给 moveTo(new File("./hp-client.apk"))，
         // 相对当前工作目录写入，配合 Multipart 文件名可造成任意路径写入。
         if (apk == null) {
+            AdminAudit.record(auditService, request, "app.upload", APK_NAME, "上传失败：请求中没有 apk 文件字段", false);
             index(page, response);
             return;
         }
         if (apk.getLength() <= 0 || apk.getLength() > MAX_APK_SIZE) {
             log.warn("APK 上传被拒绝：大小不合法({} bytes)", apk.getLength());
+            AdminAudit.record(auditService, request, "app.upload", APK_NAME,
+                    "上传失败：大小不合法（" + apk.getLength() + " 字节）", false);
             index(page, response);
             return;
         }
         String formName = apk.getFileName();
         if (formName == null || !formName.toLowerCase().endsWith(".apk")) {
             log.warn("APK 上传被拒绝：后缀不是 .apk");
+            AdminAudit.record(auditService, request, "app.upload", APK_NAME,
+                    "上传失败：后缀不是 .apk", false);
             index(page, response);
             return;
         }
         if (!isZipPackage(apk)) {
             log.warn("APK 上传被拒绝：文件头不是 ZIP/APK 格式");
+            AdminAudit.record(auditService, request, "app.upload", APK_NAME,
+                    "上传失败：文件头不是 ZIP/APK 格式", false);
             index(page, response);
             return;
         }
@@ -92,6 +118,8 @@ public class AppController {
         File dir = new File(System.getProperty("user.dir"), APK_DIR);
         if (!dir.exists() && !dir.mkdirs()) {
             log.error("APK 上传失败：无法创建目录 {}", dir.getAbsolutePath());
+            AdminAudit.record(auditService, request, "app.upload", APK_NAME,
+                    "上传失败：无法创建安装包目录", false);
             index(page, response);
             return;
         }
@@ -100,10 +128,15 @@ public class AppController {
         String base = dir.getCanonicalPath() + File.separator;
         if (!target.getCanonicalPath().startsWith(base)) {
             log.error("APK 上传失败：目标路径越界");
+            AdminAudit.record(auditService, request, "app.upload", APK_NAME,
+                    "上传失败：目标路径越界", false);
             index(page, response);
             return;
         }
         apk.moveTo(target);
+        // 上传成功：只记录落盘文件的大小，不记录内容
+        AdminAudit.record(auditService, request, "app.upload", APK_NAME,
+                "安装包已替换，大小=" + apk.getLength() + " 字节", true);
         index(page, response);
     }
 
@@ -136,9 +169,15 @@ public class AppController {
     }
 
     @GET("/admin/app/remove")
-    public void remove(Integer page, HttpResponse response, String id) {
+    public void remove(Integer page, HttpResponse response, String id, HttpRequest request) {
         if (id != null) {
-            appService.remove(id);
+            try {
+                appService.remove(id);
+                AdminAudit.record(auditService, request, "app.remove", id, "删除 app 版本记录", true);
+            } catch (RuntimeException e) {
+                AdminAudit.record(auditService, request, "app.remove", id, "删除 app 版本记录", false);
+                throw e;
+            }
         }
         index(page, response);
     }

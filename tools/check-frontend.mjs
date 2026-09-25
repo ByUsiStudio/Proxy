@@ -75,6 +75,7 @@ const GO_PAGES = {
   'domain.js': ['domain.html'],
   'autoproxy.js': ['autoproxy.html'],
   'log.js': ['log.html'],
+  'logs.js': ['logs.html'],
   'stats.js': ['stats.html'],
   'settings.js': ['settings.html']
 };
@@ -285,6 +286,39 @@ for (const { dir, filter } of scanRoots) {
   }
 }
 pass('extern', '外部资源扫描完成（用户可见的文档链接不计入）');
+
+/* ------------------------------------------------------------------ *
+ * H. 后台模板：内联脚本引用的 DOM id 必须存在
+ *    后台页面的交互脚本直接写在 .ftl 的 <script> 里，引用不存在的 id
+ *    会在运行时报错（而且是「点了按钮没反应」这类难查的问题）。
+ *    这里把每个模板自身 + header.ftl（被 include 进来）的 id 汇总后交叉校验。
+ * ------------------------------------------------------------------ */
+const HEADER_TPL = `${ADMIN_TPL}/admin/header.ftl`;
+const headerIds = exists(HEADER_TPL) ? htmlIds(read(HEADER_TPL)) : new Set();
+for (const file of walk(`${ADMIN_TPL}/admin`, (p) => p.endsWith('.ftl'))) {
+  const name = basename(file);
+  if (name === 'header.ftl' || name === 'login.ftl') continue;
+  const src = read(file);
+  const mine = htmlIds(src);
+
+  // 只扫描内联 <script>（不含 src 属性）里的 id 引用
+  const inline = [];
+  for (const m of src.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi)) {
+    inline.push(m[1]);
+  }
+  if (!inline.length) continue;
+
+  const referenced = new Set();
+  for (const js of inline) {
+    for (const m of js.matchAll(/\b(?:getElementById|byId)\(\s*['"]([^'"]+)['"]/g)) referenced.add(m[1]);
+  }
+  const missing = [...referenced].filter((id) => !mine.has(id) && !headerIds.has(id));
+  if (missing.length) {
+    fail('admin-ids', `${name}: 内联脚本引用了不存在的 id -> ${missing.join(', ')}`);
+  } else {
+    pass('admin-ids', `${name}: ${referenced.size} 个 id 引用全部存在`);
+  }
+}
 
 /* ------------------------------------------------------------------ *
  * G. FreeMarker 未转义插值

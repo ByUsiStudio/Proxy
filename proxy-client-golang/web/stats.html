@@ -140,6 +140,27 @@
 
         <section class="card">
           <div class="card__head">
+            <h2 class="card__title"><span data-icon="warn"></span>失败事件</h2>
+            <div class="toolbar">
+              <span class="text-xs faint" id="failEventsStamp">更新于 —</span>
+              <button type="button" class="btn btn--ghost btn--sm" id="failEventsRefresh">
+                <span data-icon="refresh"></span><span>刷新</span>
+              </button>
+              <button type="button" class="btn btn--ghost btn--sm" id="failEventsClear">
+                <span data-icon="trash"></span><span>清空</span>
+              </button>
+            </div>
+          </div>
+          <div class="card__body">
+            <div class="stack" id="failEventsList" aria-live="polite">
+              <div class="text-xs muted">正在读取失败事件…</div>
+            </div>
+          </div>
+          <div class="card__foot" id="failEventsFoot">仅记录隧道创建、重连、云端不可达、配置导入等失败/异常事件。</div>
+        </section>
+
+        <section class="card">
+          <div class="card__head">
             <h2 class="card__title"><span data-icon="shield"></span>会话信息</h2>
             <span class="badge badge--muted" id="tokenBadge" role="status">读取中…</span>
           </div>

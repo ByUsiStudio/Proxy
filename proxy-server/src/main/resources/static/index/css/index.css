@@ -693,3 +693,271 @@ pre.hljs {
     scroll-behavior: auto;
   }
 }
+
+/* ==========================================================================
+   用户自助门户：「我的用量」/「穿透日志」页面
+   仅复用户户已存在的设计令牌（--brand-500 / --bg-elevated / --border / --text-muted …），
+   不引入任何新颜色，保证与落地页、深色主题观感一致。
+   ========================================================================== */
+
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  word-break: break-all;
+}
+
+.usage-wrap {
+  width: min(100% - clamp(var(--s-4), 6vw, var(--s-12)), var(--max-w));
+  margin-inline: auto;
+  padding: var(--s-6) 0 var(--s-12);
+}
+
+.usage-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--s-3);
+  margin-bottom: var(--s-4);
+}
+
+.usage-title {
+  margin: 0;
+  font-size: clamp(1.35rem, 1.1rem + 1vw, 1.9rem);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+.usage-sub {
+  margin-top: var(--s-2);
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+.usage-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+  align-items: center;
+}
+
+.usage-note {
+  margin-bottom: var(--s-5);
+  padding: var(--s-3) var(--s-4);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--bg-sunken);
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+}
+
+.usage-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
+  gap: var(--s-3);
+  margin-bottom: var(--s-4);
+}
+
+.usage-stat {
+  padding: var(--s-4);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-xs);
+  min-width: 0;
+}
+
+.usage-stat--soft {
+  background: var(--bg-sunken);
+  box-shadow: none;
+}
+
+.usage-stat__label {
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+}
+
+.usage-stat__value {
+  margin-top: var(--s-2);
+  font-size: clamp(1.15rem, 1rem + 0.8vw, 1.6rem);
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+  color: var(--brand-500);
+  word-break: break-all;
+}
+
+.usage-stat--soft .usage-stat__value {
+  color: var(--text);
+  font-size: 1.15rem;
+}
+
+.usage-stat__unit {
+  margin-top: 0.15rem;
+  color: var(--text-faint);
+  font-size: 0.75rem;
+}
+
+.usage-card {
+  margin-bottom: var(--s-5);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-xs);
+  overflow: hidden;
+  min-width: 0;
+}
+
+.usage-card__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-2);
+  padding: var(--s-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.usage-card__title {
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.usage-hint {
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+}
+
+.usage-chart {
+  padding: var(--s-4);
+}
+
+.usage-chart canvas {
+  display: block;
+  width: 100%;
+  height: clamp(11rem, 26vh, 16rem);
+}
+
+.usage-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-4);
+  padding: 0 var(--s-4) var(--s-4);
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+}
+
+.usage-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+.usage-dot {
+  display: inline-block;
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: var(--r-full);
+}
+
+.usage-dot--receive {
+  background: var(--brand-500);
+}
+
+.usage-dot--send {
+  background: var(--success-500);
+}
+
+.usage-kv-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+  gap: var(--s-3);
+  padding: var(--s-4);
+}
+
+.usage-kv {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-2);
+  padding: var(--s-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-sunken);
+  min-width: 0;
+}
+
+.usage-kv__key {
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+}
+
+.usage-kv__val {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.usage-muted {
+  padding: var(--s-4);
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+}
+
+.usage-warn {
+  margin: 0 var(--s-4) var(--s-4);
+  padding: var(--s-3);
+  border: 1px solid color-mix(in srgb, var(--danger-500) 35%, transparent);
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--danger-500) 10%, transparent);
+  color: var(--danger-500);
+  font-size: 0.8125rem;
+}
+
+.usage-empty {
+  padding: var(--s-6) var(--s-4);
+  color: var(--text-muted);
+  text-align: center;
+  font-size: 0.875rem;
+}
+
+.usage-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-4);
+  border-top: 1px solid var(--border);
+  background: var(--bg-sunken);
+}
+
+.usage-form__label {
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+}
+
+.usage-input {
+  flex: 1 1 14rem;
+  min-width: 0;
+  max-width: 22rem;
+}
+
+.usage-form__status {
+  flex: 1 1 100%;
+  min-height: 1.25rem;
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+}
+
+@media (max-width: 48rem) {
+  .usage-wrap {
+    padding-top: var(--s-4);
+  }
+
+  .usage-form {
+    align-items: stretch;
+  }
+
+  .usage-input {
+    max-width: none;
+  }
+}
+

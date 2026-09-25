@@ -4,9 +4,12 @@ import cn.hserver.core.ioc.annotation.Autowired;
 import cn.hserver.plugin.web.annotation.Controller;
 import cn.hserver.plugin.web.annotation.GET;
 import cn.hserver.plugin.web.annotation.POST;
+import cn.hserver.plugin.web.interfaces.HttpRequest;
 import cn.hserver.plugin.web.interfaces.HttpResponse;
 import miao.byusi.hp.server.domian.entity.StatisticsEntity;
+import miao.byusi.hp.server.service.AuditService;
 import miao.byusi.hp.server.service.StatisticsService;
+import miao.byusi.hp.server.utils.AdminAudit;
 import miao.byusi.hp.server.utils.ExportUtil;
 import org.beetl.sql.core.page.PageResult;
 import org.slf4j.Logger;
@@ -48,6 +51,14 @@ public class LogController {
 
     @Autowired
     private StatisticsService statisticsService;
+
+    /**
+     * 审计服务：统计记录的删除（含 GET 形式）会真删数据，必须留痕
+     * （action=log.batchRemove / log.remove）。
+     * 查询 / 导出 / 图表都是只读，不写审计。
+     */
+    @Autowired
+    private AuditService auditService;
 
     @GET("/admin/log")
     public void log(Integer page, String username, Integer port, HttpResponse response) {
@@ -117,9 +128,10 @@ public class LogController {
      * @param ids 逗号分隔的记录 id
      */
     @POST("/admin/log/batchRemove")
-    public void batchRemove(String ids, String username, Integer port, HttpResponse response) {
+    public void batchRemove(String ids, String username, Integer port, HttpResponse response, HttpRequest request) {
         List<String> list = ExportUtil.parseIds(ids, MAX_BATCH_DELETE);
         if (list.isEmpty()) {
+            AdminAudit.record(auditService, request, "log.batchRemove", "", "未选择要删除的记录", false);
             response.sendJson(error("未选择要删除的记录"));
             return;
         }
@@ -128,10 +140,14 @@ public class LogController {
             removed = statisticsService.removeBatch(list);
         } catch (Exception e) {
             log.error("批量删除统计记录失败：{}", e.getMessage());
+            AdminAudit.record(auditService, request, "log.batchRemove", "",
+                    "批量删除异常：请求 " + list.size() + " 条", false);
             response.sendJson(error("批量删除失败"));
             return;
         }
         log.info("后台批量删除统计记录 {} 条（请求 {} 条）", removed, list.size());
+        AdminAudit.record(auditService, request, "log.batchRemove", "",
+                "请求 " + list.size() + " 条，删除 " + removed + " 条", true);
         Map<String, Object> ok = new HashMap<>(4);
         ok.put("code", 200);
         ok.put("msg", "已删除 " + removed + " 条记录");
@@ -140,9 +156,18 @@ public class LogController {
     }
 
     @GET("/admin/log/remove")
-    public void remove(Integer page, HttpResponse response, String id) {
+    public void remove(Integer page, HttpResponse response, String id, HttpRequest request) {
         if (id != null) {
-            statisticsService.remove(id);
+            // 该入口由后台页面的 GET 链接触发，但同样是「真删数据」的状态变更操作，必须留痕。
+            // statisticsService.remove 无返回值（不区分 id 是否存在），
+            // 因此成功与否以「是否抛异常」为准；异常照旧向上抛出，保持原有错误行为。
+            try {
+                statisticsService.remove(id);
+                AdminAudit.record(auditService, request, "log.remove", id, "删除统计记录", true);
+            } catch (RuntimeException e) {
+                AdminAudit.record(auditService, request, "log.remove", id, "删除异常", false);
+                throw e;
+            }
         }
         log(page, null, null, response);
     }

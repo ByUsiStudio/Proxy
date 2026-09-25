@@ -9,7 +9,9 @@ import cn.hserver.plugin.web.interfaces.HttpRequest;
 import miao.byusi.hp.server.config.ConstConfig;
 import miao.byusi.hp.server.domian.entity.ConfigEntity;
 import miao.byusi.hp.server.domian.entity.UserEntity;
+import miao.byusi.hp.server.service.AuditService;
 import miao.byusi.hp.server.service.ConfigService;
+import miao.byusi.hp.server.service.QuotaService;
 import miao.byusi.hp.server.service.UserService;
 import miao.byusi.hp.server.utils.NetUtil;
 import miao.byusi.hp.server.utils.RateLimitUtil;
@@ -31,8 +33,25 @@ public class ConfigController {
     @Autowired
     private UserService userService;
 
+    /**
+     * 用量配额：在本控制器中<b>只用于拒绝</b>，不改变任何既有响应结构。
+     * 见 {@link #save(ConfigEntity, HttpRequest)} 与 {@link #listDevice(String, String, String, HttpRequest)}
+     * 中的中文说明：配额在「配置下发阶段」强制，因为云端看不到按账号的实时连接数。
+     */
+    @Autowired
+    private QuotaService quotaService;
+
+    /**
+     * 审计服务：本控制器是<b>公开接口</b>，只记录「失败与拒绝」，成功路径一律不记
+     * （理由见 {@link #listDevice} 末尾的说明：引导接口每次客户端启动都会被调用，
+     * 记成功会把审计表刷爆）。所有调用都显式传 {@code actorType="user"}，
+     * 刻意不复用 {@link miao.byusi.hp.server.utils.AdminAudit}——那是后台管理员的身份。
+     */
+    @Autowired
+    private AuditService auditService;
+
     @POST("save")
-    public JsonResult save(ConfigEntity config){
+    public JsonResult save(ConfigEntity config, HttpRequest request){
         if (config.getUserId()==null){
             return JsonResult.error("用户ID不能为空");
         }
@@ -61,6 +80,20 @@ public class ConfigController {
         UserEntity userById = userService.getUserById(config.getUserId());
         if (userById==null){
             return JsonResult.error("用户不存在");
+        }
+
+        // 【用量配额】在「配置下发阶段」拦截：云端无法可靠观测每个账号的实时连接数
+        // （连接建立在内网客户端与代理节点之间），因此 max_conns 只是参考性元数据，
+        // 真正能强制的是「给不给这个账号新的隧道配置」。这里复用统一入口
+        // QuotaService#checkTunnelQuota：既看月度流量是否超限，也看新增后是否超过 max_tunnels。
+        // 既有的 ConstConfig.PROXY_SIZE 硬上限不受影响，仍由 configService.save 兜底。
+        String quotaRefusal = quotaService.checkTunnelQuota(config.getUserId(), 1);
+        if (quotaRefusal != null) {
+            // 【审计】配额拒绝属于「用户视角的业务拒绝」，必须留痕：
+            // 账号一律取数据库里的 userById.getUsername()，不信任客户端提交的 config.getUsername()。
+            auditService.record("user", userById.getUsername(), "quota.refused",
+                    userById.getUsername(), quotaRefusal, "fail", request);
+            return JsonResult.error(quotaRefusal);
         }
 
         // 【安全修复】以下字段都会被后台 config.ftl 未转义渲染，入库前统一做白名单校验/规范化，
@@ -130,6 +163,11 @@ public class ConfigController {
      * </ul>
      * 响应结构保持不变：{@code {code, data:[ConfigEntity...]}}，
      * 客户端读取的 username/password/userHost/serverHost/type/domain/port 字段名不变。
+     * <p>
+     * 【用量配额】唯一的例外：当账号<b>已超出用量配额</b>时，仍然完成限流与认证，
+     * 但返回 {@code JsonResult.error("账号已超出用量配额…")} 且不带 {@code data}，
+     * 即不再返回任何隧道配置。非超限账号的响应结构与参数名<b>完全不变</b>。
+     * </p>
      */
     @GET("listDevice")
     public JsonResult listDevice(String deviceId, String username, String password, HttpRequest request) {
@@ -137,16 +175,37 @@ public class ConfigController {
         // 但必须先做格式校验，避免异常输入被回显到模板。
         String clean = SafeInputUtil.cleanDeviceId(deviceId);
         if (clean == null) {
+            // 【审计】只记失败，成功不记（理由见方法末尾的说明）
+            auditService.record("user", attempted(username), "config.listDevice.fail", "",
+                    "设备ID不合法", "fail", request);
             return JsonResult.error("参数不合法");
         }
         // 未认证接口，先限流，防止被用来批量枚举 deviceId
         String ip = NetUtil.clientIp(request);
         if (!RateLimitUtil.allow("config-listDevice", ip, 30, 60 * 1000L)) {
+            auditService.record("user", attempted(username), "config.listDevice.fail", clean,
+                    "触发限流", "fail", request);
             return JsonResult.error("请求过于频繁，请稍后再试");
         }
         UserEntity user = UserAuthUtil.authenticate(userService, null, username, password);
         if (user == null) {
+            // 凭据校验失败是口令爆破最直接的信号，必须留痕（绝不记录提交的口令本身）
+            auditService.record("user", attempted(username), "config.listDevice.fail", clean,
+                    "凭据校验失败", "fail", request);
             return JsonResult.error("账号或密码错误");
+        }
+        // 【用量配额】超限时仍然完成「认证 + 限流」，但不再返回隧道列表：
+        // 客户端因此拿不到任何可建的隧道，达到「不建隧道」的效果，同时不泄露任何敏感信息
+        // （错误信息里只有配额状态与用量，没有口令、没有隧道明细）。
+        // 【诚实说明】Go 客户端 InitCloudDevice 只判断 HTTP 状态码，不解析响应里的 code/msg，
+        // 因此它不会打印这条中文原因，只会因为 data 为空而静默跳过（见交付报告）。
+        String quotaRefusal = quotaService.checkOverLimit(user.getId());
+        if (quotaRefusal != null) {
+            // 【审计】配额拒绝按「用户维度的拒绝」单独记一条：这是运营排查
+            // 「用户说自己的隧道突然没了」时最直接的证据；账号以库里认证结果为准。
+            auditService.record("user", user.getUsername(), "quota.refused",
+                    user.getUsername(), quotaRefusal, "fail", request);
+            return JsonResult.error(quotaRefusal);
         }
         List<ConfigEntity> all = configService.listDevice(clean);
         List<ConfigEntity> owned = new ArrayList<>();
@@ -157,6 +216,10 @@ public class ConfigController {
                 }
             }
         }
+        // 【为什么不审计成功】本接口是客户端每次启动（开机/重连）都要调用的引导接口，
+        // 成功路径若也写审计，几千台设备每天开机就会往 sys_audit_log 里灌进海量无意义记录，
+        // 把真正有价值的失败信号（口令爆破 / 枚举 deviceId / 配额拒绝）淹没掉，并挤占
+        // 审计表的保留窗口。因此成功路径一条都不写，只记录上面三类失败与拒绝。
         return JsonResult.ok().put("data", owned);
     }
 
@@ -195,6 +258,19 @@ public class ConfigController {
         return JsonResult.ok().put("data",configService.remove(target.getId()));
     }
 
-
+    /**
+     * 审计用的「尝试账号」：认证失败时唯一能拿到的就是调用方自称的 username。
+     * <p>
+     * 它可能为空、可能冒用他人账号、也可能夹带攻击载荷，因此：
+     * 只做长度夹紧（AuditServiceImpl 还会去掉控制字符并按 128 字符截断），
+     * <b>绝不</b>用它查库或参与任何授权判断——授权一律以库里的用户记录为准。
+     */
+    private static String attempted(String username) {
+        if (username == null) {
+            return "";
+        }
+        String name = username.trim();
+        return name.length() > 64 ? name.substring(0, 64) : name;
+    }
 
 }

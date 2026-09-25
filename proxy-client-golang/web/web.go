@@ -22,10 +22,13 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	HpMessage "proxy-client-golang/hpMessage"
+	"proxy-client-golang/pkg/events"
 	"proxy-client-golang/pkg/logger"
+	"proxy-client-golang/pkg/logsink"
 	"proxy-client-golang/tcp"
 
 	"github.com/gin-gonic/gin"
@@ -78,17 +81,52 @@ const (
 	maxAuthFailuresPerWindow = 10
 	// maxRateLimiterKeys 限流器 map 的键数量上限，超出后淘汰最旧的键，保证内存有界。
 	maxRateLimiterKeys = 1024
+	// maxLogTailLines /console/logs/tail 允许的最大行数（与 logsink.MaxTailLines 对齐）。
+	maxLogTailLines = logsink.MaxTailLines
+	// maxEventsPerQuery /console/events 单次返回的最大条数。
+	maxEventsPerQuery = 200
+	// eventsCapacity 失败事件环形缓冲容量。
+	eventsCapacity = events.DefaultCapacity
+	// diagnoseMaxTunnels 一键诊断最多探测的隧道数量（有界工作量的关键）。
+	diagnoseMaxTunnels = 50
+	// diagnoseBudget 一键诊断的整体截止时间，保证接口不会挂住。
+	diagnoseBudget = 10 * time.Second
+	// diagnoseDialTimeout 单条隧道目标地址的 TCP 拨号超时。
+	diagnoseDialTimeout = 2 * time.Second
+	// diagnoseCloudTimeout 云端可达性探测超时。
+	diagnoseCloudTimeout = 3 * time.Second
+	// diagnoseWorkers 诊断探测的并发 worker 数量（够小，避免瞬间打出大量连接）。
+	diagnoseWorkers = 8
+	// failureEventCooldown 同一 (kind, domain) 失败事件的最小记录间隔，避免刷屏式失败
+	// 把环形缓冲冲干净（只影响事件记录，不影响日志与界面推送）。
+	failureEventCooldown = 30 * time.Second
+	// maxFailureEventKeys 冷却表的最大键数量，保证内存有界。
+	maxFailureEventKeys = 256
 )
 
 // authFailureWindow 令牌校验失败的统计窗口。
 const authFailureWindow = 5 * time.Minute
 
 var (
-	logLevel     = LogLevelInfo
-	log          logger.Logger
-	ApiUrl       = ""
-	deviceID     = "NO_ID"
-	CORE_VERSION = "1.0"
+	// logLevel 是当前日志级别（0=Debug 1=Info 2=Warn 3=Error）。
+	//
+	// 【并发修复】原实现是一个裸 int，被隧道创建协程、重连协程、HTTP 协程同时读写，
+	// 在运行时可被 /console/log-level 修改，属于数据竞争（-race 可复现）。
+	// 现在改为 atomic.Int32，读取点统一走 LogLevelValue()。
+	logLevel atomic.Int32
+
+	// log 默认使用丢弃式实现：即使宿主忘记调用 SetLogger（或测试直接调用处理函数），
+	// 任何 log.Warnf 也不会 panic。StartWeb / InitCloudDevice 会用真实实现覆盖它。
+	log          logger.Logger = discardLogger{}
+	ApiUrl                     = ""
+	deviceID                   = "NO_ID"
+	CORE_VERSION               = "1.0"
+
+	// logSink 日志落盘接收器，由 main.go 通过 SetLogSink 注入；可能为 nil。
+	logSink atomic.Pointer[logsink.Manager]
+
+	// failureEvents 失败事件环形缓冲（有界，只记录失败/异常事件）。
+	failureEvents = events.New(eventsCapacity)
 )
 
 var (
@@ -113,8 +151,17 @@ var (
 	addLimiter = newRateLimiter(30, time.Minute)
 	// authFailLimiter 记录令牌校验失败次数，防止令牌被在线暴力枚举。
 	authFailLimiter = newRateLimiter(maxAuthFailuresPerWindow, authFailureWindow)
-	apiClient       = &http.Client{Timeout: 15 * time.Second}
-	apiTransport    = &http.Transport{
+	// logQueryLimiter 限制日志查询/下载接口频率，避免被用来反复砸磁盘。
+	logQueryLimiter = newRateLimiter(60, time.Minute)
+	// diagnoseLimiter 限制一键诊断频率：每次诊断都会真正拨号，必须严格限量。
+	diagnoseLimiter = newRateLimiter(10, time.Minute)
+	// eventsLimiter 限制失败事件接口频率。
+	eventsLimiter = newRateLimiter(60, time.Minute)
+	// wsErrEventMu 保护 failureEventAt（失败事件冷却表），避免重连循环把环形缓冲刷爆。
+	wsErrEventMu   sync.Mutex
+	failureEventAt = make(map[string]time.Time)
+	apiClient      = &http.Client{Timeout: 15 * time.Second}
+	apiTransport   = &http.Transport{
 		Proxy:                 http.ProxyFromEnvironment,
 		DialContext:           (&net.Dialer{Timeout: 8 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
 		ForceAttemptHTTP2:     true,
@@ -263,11 +310,185 @@ type ExportPayload struct {
 	Tunnels    []ExportedTunnel `json:"tunnels"`
 }
 
+// SetLogLevel 设置进程日志级别（0=Debug 1=Info 2=Warn 3=Error）。
+//
+// 同时做三件事，缺一不可：
+//  1. 更新本包原子变量（控制台过滤用）；
+//  2. 更新 zerolog 全局级别（gen_logger 写出的日志用）；
+//  3. 文件 sink 通过 LogLevelValue 读取同一个原子变量，因此自动同步，无需额外动作。
+//
+// 保持既有签名不变（main.go / android/android.go 都在用）。
 func SetLogLevel(level int) {
-	logLevel = level
+	level = logsink.SetGlobalLevel(level)
+	logLevel.Store(int32(level))
 }
 
+// LogLevelValue 返回当前级别编号。可在任意 goroutine 安全调用。
+func LogLevelValue() int {
+	return int(logLevel.Load())
+}
+
+// LogLevelName 返回当前级别名称（debug/info/warn/error）。
+func LogLevelName() string { return logsink.LevelName(LogLevelValue()) }
+
+// ShouldLog 判断给定级别名（debug/info/warn/error）在当前级别下是否应当输出。
+// 控制台事件在推送给浏览器与写入文件之前统一用它过滤，保证「界面看到的」与
+// 「文件里落盘的」在级别口径上完全一致。
+func ShouldLog(level string) bool {
+	return logsink.LevelValueOf(level) >= LogLevelValue()
+}
+
+// SetLogSink 注入日志落盘接收器（由 main.go 调用）。
+//
+// 这里只保存指针，不重新创建 sink：STDOUT 与文件两个 sink 必须共用同一个轮转器，
+// 否则控制台事件会写到另一个文件里去。
+func SetLogSink(sink *logsink.Manager) {
+	logSink.Store(sink)
+}
+
+// currentLogSink 返回当前日志接收器，可能为 nil（例如 Android 宿主未注入）。
+func currentLogSink() *logsink.Manager {
+	if sink := logSink.Load(); sink != nil {
+		return sink
+	}
+	return nil
+}
+
+// ensureLogSink 在未注入时按环境变量惰性创建一个默认接收器。
+// 用于独立运行 web 包（测试、嵌入式宿主）时不至于完全没有日志落盘能力。
+func ensureLogSink() *logsink.Manager {
+	if sink := currentLogSink(); sink != nil {
+		return sink
+	}
+	cfg := logsink.Config{
+		Dir:      envOr("LOG_DIR", logsink.DefaultDirName),
+		BaseName: envOr("LOG_FILE", logsink.DefaultFileName),
+		MaxBytes: int64(envIntOr("LOG_MAX_MB", logsink.DefaultMaxMB)) << 20,
+		Keep:     envIntOr("LOG_KEEP", logsink.DefaultKeepFiles),
+	}
+	sink := logsink.NewManager(cfg, LogLevelValue)
+	// 并发首次调用时可能重复创建：CompareAndSwap 保证只有一个生效，另一个被丢弃。
+	if !logSink.CompareAndSwap(nil, sink) {
+		return currentLogSink()
+	}
+	return sink
+}
+
+// envOr 读取环境变量，为空时返回默认值。
+func envOr(name, fallback string) string {
+	if v := strings.TrimSpace(os.Getenv(name)); v != "" {
+		return v
+	}
+	return fallback
+}
+
+// envIntOr 读取整型环境变量，缺失或非法时返回默认值。
+func envIntOr(name string, fallback int) int {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return fallback
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil || v <= 0 {
+		return fallback
+	}
+	return v
+}
+
+// recordFailure 记录一条失败事件。
+//
+// 【为什么只记失败】整条日志流是高频数据，塞进内存既浪费又淹没有用信号；
+// 控制台需要的只是「最近出了哪些问题」。这里统一走环形缓冲，有界且并发安全。
+func recordFailure(kind, domain, message string) {
+	failureEvents.Record(kind, domain, message)
+}
+
+// mirrorConsoleEvent 把一条控制台事件同步写入日志文件。
+//
+// 目的：控制台页面上的隧道事件（连接断开、重连、隧道停止等）过去只走 wsSend 发给
+// 浏览器，刷新即丢；现在同样落盘，重启后仍可在日志页里查到。
+// 级别过滤与界面保持一致；任何失败都不影响调用方。
+func mirrorConsoleEvent(domain, level, message string) {
+	if !ShouldLog(level) {
+		return
+	}
+	sink := currentLogSink()
+	if sink == nil {
+		return
+	}
+	label := domain
+	if label == "" {
+		label = "system"
+	}
+	sink.WriteMessage(level, fmt.Sprintf("[%s] %s", label, message))
+}
+
+// emitFailure 记录失败事件并同时反映到控制台与日志文件。
+// 三类失败（隧道创建、重连、云端不可达等）统一走这里，避免各写一套。
+//
+// 【为什么要冷却】重连循环每 5 秒就会失败一次，如果每次都记事件，200 条的环形
+// 缓冲会被同一条“连接已断开”瞬间冲干净，真正有价值的失败反而被挤掉。
+// 因此同一 (kind, domain) 在 failureEventCooldown 内只记一条。
+func emitFailure(kind, domain, message string) {
+	if allowFailureEvent(kind, domain) {
+		recordFailure(kind, domain, message)
+	}
+	// 事件同时写入日志文件：诊断/排障时文件里能看到与界面一致的时间线。
+	mirrorConsoleEvent(domain, "warn", fmt.Sprintf("[%s] %s", kind, message))
+}
+
+// failureEventCooldown 返回某个 (kind, domain) 是否已过冷却期。
+func failureEventCooldownKey(kind, domain string) string {
+	return kind + "|" + domain
+}
+
+func allowFailureEvent(kind, domain string) bool {
+	now := time.Now()
+	key := failureEventCooldownKey(kind, domain)
+
+	wsErrEventMu.Lock()
+	defer wsErrEventMu.Unlock()
+	if last, ok := failureEventAt[key]; ok && now.Sub(last) < failureEventCooldown {
+		return false
+	}
+	failureEventAt[key] = now
+	// 键数量有界：超过上限时清理过期项，仍然超额就整体重置（极端情况下的兜底）。
+	if len(failureEventAt) > maxFailureEventKeys {
+		for k, at := range failureEventAt {
+			if now.Sub(at) > failureEventCooldown {
+				delete(failureEventAt, k)
+			}
+		}
+		if len(failureEventAt) > maxFailureEventKeys {
+			failureEventAt = make(map[string]time.Time)
+			failureEventAt[key] = now
+		}
+	}
+	return true
+}
+
+// emitConsoleEvent 把「只发给浏览器」的事件补一份到日志文件（不记入失败事件）。
+func emitConsoleEvent(domain, level, message string) {
+	mirrorConsoleEvent(domain, level, message)
+}
+
+// discardLogger 是 log 为 nil 时的兜底实现。
+//
+// 【为什么需要】嵌入式宿主（android/android.go、第三方集成）可能忘记调用 SetLogger，
+// 此时任何 log.Warnf 都会 panic —— 而日志调用恰好散布在所有错误路径上，
+// 等于把“日志没初始化”放大成“控制台崩溃”。这里统一兜底为丢弃式 logger。
+type discardLogger struct{}
+
+func (discardLogger) Debugf(string, ...interface{}) {}
+func (discardLogger) Infof(string, ...interface{})  {}
+func (discardLogger) Warnf(string, ...interface{})  {}
+func (discardLogger) Errorf(string, ...interface{}) {}
+
+// SetLogger 注入日志实现；传入 nil 时使用丢弃式实现，保证任何调用点都不会 panic。
 func SetLogger(l logger.Logger) {
+	if l == nil {
+		l = discardLogger{}
+	}
 	log = l
 }
 
@@ -630,7 +851,12 @@ func limiterKey(c *gin.Context) string {
 // 隧道管理
 // ---------------------------------------------------------------------------
 
-// wsSend 把一条日志推送给所有控制台连接。
+// wsSend 把一条日志推送给所有控制台连接，并同步写入日志文件。
+//
+// 【为什么在这里落盘】隧道事件（连接断开、重连、隧道停止）过去只走 WebSocket，
+// 浏览器刷新即丢，排查问题只能靠运气。统一在本函数落盘可以保证「界面上看到的」
+// 与「日志文件里的」是同一条时间线，且不必在每个调用点重复写两遍。
+//
 // 【安全修复】原实现直接在隧道的数据协程里同步遍历所有客户端写 socket
 // （每个客户端还有 10 秒写超时），客户端数量无上限，任何一个慢客户端
 // 都能把隧道协程卡住，进而拖死整条隧道。现在改为“有界队列 + 非阻塞投递”：
@@ -642,6 +868,13 @@ func wsSend(msg Log) {
 	if len(msg.Msg) > maxWSPushBytes {
 		msg.Msg = msg.Msg[:maxWSPushBytes] + "…"
 	}
+	// 先落盘（内部有级别过滤，且失败只记录不返回），再做非阻塞推送。
+	level := msg.Level
+	if level == "" {
+		level = "info"
+	}
+	mirrorConsoleEvent(msg.Domain, level, msg.Msg)
+
 	ConnWsGroup.Range(func(key, _ interface{}) bool {
 		client, ok := key.(*wsClient)
 		if !ok || client == nil {
@@ -699,10 +932,12 @@ func createTunnel(meta TunnelMeta, messageType HpMessage.HpMessage_MessageType) 
 		cfg, err := sslCfg.NewTLSConfig()
 		if err != nil {
 			log.Errorf("SSL 配置初始化失败，已中止隧道创建（拒绝明文降级）: %v", err)
+			emitFailure("tls-config", meta.Domain, fmt.Sprintf("SSL 配置初始化失败，已中止创建（拒绝明文降级）：%v", err))
 			return nil, fmt.Errorf("SSL 配置初始化失败，已中止创建以防止明文降级: %w", err)
 		}
 		if cfg == nil {
 			log.Errorf("SSL 配置初始化未返回有效配置，已中止隧道创建（拒绝明文降级）")
+			emitFailure("tls-config", meta.Domain, "SSL 配置初始化失败：未返回有效的 TLS 配置")
 			return nil, errors.New("SSL 配置初始化失败：未返回有效的 TLS 配置")
 		}
 		tlsConfig = cfg
@@ -724,10 +959,12 @@ func createTunnel(meta TunnelMeta, messageType HpMessage.HpMessage_MessageType) 
 	tunnelMu.Lock()
 	if _, exists := ConnGroup.Load(meta.Domain); exists {
 		tunnelMu.Unlock()
+		emitFailure("tunnel-conflict", meta.Domain, "域名已被其它隧道占用")
 		return nil, errors.New("域名 " + meta.Domain + " 已经被使用")
 	}
 	if countTunnels() >= maxTunnels {
 		tunnelMu.Unlock()
+		emitFailure("tunnel-limit", meta.Domain, fmt.Sprintf("隧道数量已达上限 %d，请先停止部分隧道", maxTunnels))
 		return nil, fmt.Errorf("隧道数量已达上限 %d，请先停止部分隧道", maxTunnels)
 	}
 
@@ -765,6 +1002,7 @@ func createTunnel(meta TunnelMeta, messageType HpMessage.HpMessage_MessageType) 
 			}
 			if !hpClient.GetStatus() {
 				log.Warnf("代理连接 %s 断开，尝试重连...", domain)
+				emitFailure("reconnect", domain, "连接已断开，正在重连")
 				connect()
 				wsSend(Log{Domain: domain, Msg: "连接已断开，正在重连", Level: "warn"})
 			}
@@ -1203,6 +1441,13 @@ func handleConfigImport(c *gin.Context) {
 
 	created, skipped := 0, 0
 	failures := make([]string, 0)
+	// addFailure 记录一条导入失败：既回给页面，也进入失败事件缓冲，
+	// 这样「导入完成：失败 N 条」之后还能在事件面板里查到具体原因。
+	addFailure := func(domain, reason string) {
+		line := fmt.Sprintf("%s：%s", domain, reason)
+		failures = append(failures, line)
+		emitFailure("config-import", domain, "导入失败："+reason)
+	}
 	for _, item := range payload.Tunnels {
 		item.Domain = strings.TrimSpace(item.Domain)
 		item.ServerHost = strings.TrimSpace(item.ServerHost)
@@ -1221,19 +1466,19 @@ func handleConfigImport(c *gin.Context) {
 		case "TCP_UDP":
 			messageType = HpMessage.HpMessage_TCP_UDP
 		default:
-			failures = append(failures, fmt.Sprintf("%s：穿透类型不合法", item.Domain))
+			addFailure(item.Domain, "穿透类型不合法")
 			continue
 		}
 		if !validHost(item.ServerHost) || item.ServerPort <= 0 || item.ServerPort > 65535 {
-			failures = append(failures, fmt.Sprintf("%s：穿透服务器不合法", item.Domain))
+			addFailure(item.Domain, "穿透服务器不合法")
 			continue
 		}
 		if !validHost(item.TargetHost) || item.TargetPort <= 0 || item.TargetPort > 65535 {
-			failures = append(failures, fmt.Sprintf("%s：内网服务不合法", item.Domain))
+			addFailure(item.Domain, "内网服务不合法")
 			continue
 		}
 		if proxyType != "UDP" && !validHost(item.Domain) {
-			failures = append(failures, fmt.Sprintf("%s：域名不合法", item.Domain))
+			addFailure(item.Domain, "域名不合法")
 			continue
 		}
 		if proxyType == "UDP" {
@@ -1271,6 +1516,9 @@ func handleConfigImport(c *gin.Context) {
 				continue
 			}
 			failures = append(failures, fmt.Sprintf("%s：%v", item.Domain, err))
+			// 导入失败必须能被运维看到：批量导入时页面上只显示条数，
+			// 具体哪条因为什么失败要靠失败事件面板/日志页。
+			emitFailure("config-import", item.Domain, fmt.Sprintf("导入失败：%v", err))
 			continue
 		}
 		created++
@@ -1300,6 +1548,7 @@ func handleCoreVersion(c *gin.Context) {
 	resp, err := apiClient.Get(ApiUrl + "/app/getCoreVersion")
 	if err != nil {
 		log.Errorf("获取内核版本失败: %v", err)
+		emitFailure("cloud-api", "", fmt.Sprintf("内核版本检查失败：云端不可达（%v）", err))
 		res.Msg = "检查更新失败：云端不可达"
 		c.JSON(http.StatusOK, res)
 		return
@@ -1382,6 +1631,7 @@ func newApiReverseProxy() (*httputil.ReverseProxy, error) {
 	}
 	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
 		log.Errorf("反向代理失败: %v", err)
+		emitFailure("cloud-api", "", fmt.Sprintf("云端反向代理失败：%v", err))
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.WriteHeader(http.StatusBadGateway)
 		_, _ = w.Write([]byte(`{"code":-1,"msg":"云端服务不可达"}`))
@@ -1534,12 +1784,14 @@ func (w *wsClient) enqueue(msg Log) {
 func handleWebSocket(c *gin.Context) {
 	if countWS() >= maxWSClients {
 		log.Warnf("WebSocket 连接数已达上限 %d，拒绝新连接: ip=%s", maxWSClients, c.ClientIP())
+		emitFailure("ws-channel", "", fmt.Sprintf("日志通道连接数已达上限 %d", maxWSClients))
 		abortJSON(c, http.StatusServiceUnavailable, "日志连接数已达上限，请稍后再试")
 		return
 	}
 	conn, err := upGrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		log.Errorf("WebSocket升级失败: %v", err)
+		emitFailure("ws-channel", "", fmt.Sprintf("WebSocket 升级失败：%v", err))
 		return
 	}
 	client := newWSClient(conn)
@@ -1590,6 +1842,7 @@ func handleWebSocket(c *gin.Context) {
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure, websocket.CloseNormalClosure) {
 				log.Errorf("WebSocket读取错误: %v", err)
+				emitFailure("ws-channel", "", fmt.Sprintf("日志通道读取错误：%v", err))
 			}
 			return
 		}
@@ -1659,7 +1912,34 @@ font-family:ui-monospace,Consolas,monospace;word-break:break-all}p{margin:.5rem 
 </div></body></html>`)
 }
 
+// StartWeb 启动控制台并阻塞在当前协程（保持既有导出签名与语义不变）。
+//
+// 路由装配被拆到 newConsoleEngine：既让 StartWeb 保持“启动即阻塞”的既有语义，
+// 也让路由表可以被测试直接驱动（httptest），避免为了验证一条接口而真的占用端口。
 func StartWeb(webPort int, coreVersion string, logger logger.Logger) {
+	e, addr, ok := newConsoleEngine(webPort, coreVersion, logger)
+	if !ok {
+		return
+	}
+	log.Infof("控制台地址: http://%s/", addr)
+	server := &http.Server{
+		Addr:              addr,
+		Handler:           e,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		// WebSocket 与反向代理需要长连接，因此不设置写超时。
+		WriteTimeout:   0,
+		IdleTimeout:    90 * time.Second,
+		MaxHeaderBytes: 1 << 16,
+	}
+	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Errorf("启动Web服务失败: %v", err)
+	}
+}
+
+// newConsoleEngine 完成令牌生成、监听地址解析与路由装配，返回可服务的 gin 引擎。
+// 第二个返回值是监听地址（host:port），第三个表示初始化是否成功（失败时调用方应放弃启动）。
+func newConsoleEngine(webPort int, coreVersion string, logger logger.Logger) (*gin.Engine, string, bool) {
 	SetLogger(logger)
 	CORE_VERSION = coreVersion
 	gin.SetMode(gin.ReleaseMode)
@@ -1676,7 +1956,7 @@ func StartWeb(webPort int, coreVersion string, logger logger.Logger) {
 			token, err := generateConsoleToken()
 			if err != nil {
 				log.Errorf("生成控制台令牌失败，出于安全考虑拒绝启动控制台: %v", err)
-				return
+				return nil, "", false
 			}
 			consoleToken = token
 			tokenEnforced = true
@@ -1688,7 +1968,7 @@ func StartWeb(webPort int, coreVersion string, logger logger.Logger) {
 		token, err := generateConsoleToken()
 		if err != nil {
 			log.Errorf("生成控制台令牌失败，出于安全考虑拒绝启动控制台: %v", err)
-			return
+			return nil, "", false
 		}
 		consoleToken = token
 	}
@@ -1810,6 +2090,19 @@ func StartWeb(webPort int, coreVersion string, logger logger.Logger) {
 		auth.GET("/core/version", handleCoreVersion)
 		auth.GET("/device/info", handleDeviceInfo)
 		auth.GET("/ws", handleWebSocket)
+
+		// 日志落盘：历史文件枚举 / 尾部查询 / 下载（全部只接受文件名，绝不接受路径）
+		auth.GET("/console/logs/files", handleLogFiles)
+		auth.GET("/console/logs/tail", handleLogTail)
+		auth.GET("/console/logs/download", handleLogDownload)
+		// 运行时日志级别：读写都要求同源会话
+		auth.GET("/console/log-level", handleGetLogLevel)
+		auth.POST("/console/log-level", handleSetLogLevel)
+		// 失败事件汇总（内存环形缓冲，非持久化）
+		auth.GET("/console/events", handleEvents)
+		auth.POST("/console/events/clear", handleClearEvents)
+		// 一键诊断（限流最严：会真的拨号）
+		auth.GET("/console/diagnose", handleDiagnose)
 	}
 
 	// 云端 API 反向代理
@@ -1861,19 +2154,7 @@ func StartWeb(webPort int, coreVersion string, logger logger.Logger) {
 	})
 
 	addr := net.JoinHostPort(bindHost, strconv.Itoa(webPort))
-	server := &http.Server{
-		Addr:              addr,
-		Handler:           e,
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       30 * time.Second,
-		// WebSocket 与反向代理需要长连接，因此不设置写超时。
-		WriteTimeout:   0,
-		IdleTimeout:    90 * time.Second,
-		MaxHeaderBytes: 1 << 16,
-	}
-	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Errorf("启动Web服务失败: %v", err)
-	}
+	return e, addr, true
 }
 
 func InitCloudDevice(apiAddress string, deviceId string, level int, logger logger.Logger) {
@@ -1921,12 +2202,14 @@ func InitCloudDevice(apiAddress string, deviceId string, level int, logger logge
 		"&username=" + url.QueryEscape(apiUser) + "&password=" + url.QueryEscape(apiPass))
 	if err != nil {
 		log.Errorf("获取设备配置失败: %v", err)
+		emitFailure("cloud-api", "", fmt.Sprintf("获取设备配置失败：云端不可达（%v）", err))
 		return
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		log.Errorf("获取设备配置失败: 云端返回状态码 %d", resp.StatusCode)
+		emitFailure("cloud-api", "", fmt.Sprintf("获取设备配置失败：云端返回状态码 %d", resp.StatusCode))
 		return
 	}
 

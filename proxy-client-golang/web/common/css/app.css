@@ -353,6 +353,24 @@ textarea {
   flex: none;
 }
 
+/* 可点击的 chip（例如页头的失败事件徽章）：按钮语义 + 悬停反馈 */
+.chip--action {
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--fs-xs);
+  transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+
+.chip--action:hover {
+  border-color: var(--warning-500);
+  background: color-mix(in srgb, var(--warning-500) 20%, transparent);
+}
+
+.chip--action:focus-visible {
+  outline: 2px solid var(--brand-500);
+  outline-offset: 2px;
+}
+
 .app-body {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -1202,6 +1220,23 @@ textarea {
 
 .log-line--debug .log-line__msg {
   color: var(--text-faint);
+}
+
+/* info 级别使用默认前景色（日志文件页按级别着色时需要一个显式类） */
+.log-line--info .log-line__msg {
+  color: var(--text);
+}
+
+/* 日志文件页：时间列展示的是 "[level]" 标记，等宽更易读 */
+.logs-level-cell {
+  color: var(--text-faint);
+  text-transform: uppercase;
+}
+
+/* 一键诊断：单条隧道检查块，用左侧细线区分层级 */
+.diag-tunnel {
+  padding-left: var(--s-3);
+  border-left: 2px solid var(--border);
 }
 
 /* ---------- 14. 提示条 / 空状态 / 骨架 ---------- */

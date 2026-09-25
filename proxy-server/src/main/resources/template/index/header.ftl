@@ -37,6 +37,8 @@
             <span>Proxy 穿透</span>
         </a>
         <div class="mdui-toolbar-spacer"></div>
+        <#--  已登录用户可直接进入自助门户：/index/usage 由 AuthFilter 校验会话，未登录会回到本页  -->
+        <a class="mdui-btn mdui-btn-dense mdui-ripple mdui-hidden-xs" href="/index/usage">我的用量</a>
         <button type="button" class="theme-toggle" id="themeToggle" aria-label="切换深色 / 浅色主题" title="切换主题">
             <svg viewBox="0 0 24 24" id="themeIcon"><path d="M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10"/><path d="M12 1v3M12 20v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M1 12h3M20 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>
         </button>

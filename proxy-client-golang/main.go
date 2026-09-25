@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"proxy-client-golang/pkg/logger"
+	"proxy-client-golang/pkg/logsink"
 	"proxy-client-golang/tcp"
 	"proxy-client-golang/web"
 	"strconv"
@@ -21,6 +22,19 @@ const (
 )
 
 func initLogger(level int) logger.Logger {
+	return initLoggerWithSink(level, os.Getenv("LOG_DIR"), os.Getenv("LOG_FILE"),
+		envInt("LOG_MAX_MB", logsink.DefaultMaxMB), envInt("LOG_KEEP", logsink.DefaultKeepFiles))
+}
+
+// initLoggerWithSink 构建日志器。
+//
+// 【为什么用 MultiLevelWriter】STDOUT 输出（ConsoleWriter，带颜色、便于人工观察）与
+// 文件落盘（按大小轮转、带级别过滤）必须是两个独立 sink：控制台/容器环境没有终端时
+// 依然要能落盘排查，反过来开发机上也不该因为磁盘不可写就没有控制台输出。
+//
+// 文件 sink 的级别源直接读取 web 包的原子变量，因此控制台运行时改级别会同时作用于
+// 两者，不会出现「界面显示 debug，文件里只有 info」的不一致。
+func initLoggerWithSink(level int, logDir string, logFile string, logMaxMB int, logKeep int) logger.Logger {
 	output := zerolog.ConsoleWriter{
 		Out:        os.Stdout,
 		TimeFormat: time.DateTime,
@@ -42,26 +56,44 @@ func initLogger(level int) logger.Logger {
 		},
 	}
 
-	zl := zerolog.New(output).With().Timestamp().Logger()
+	// 初始化日志落盘 sink（大小轮转 + 运行时级别过滤）。
+	sink := logsink.NewManager(logsink.Config{
+		Dir:      logDir,
+		BaseName: logFile,
+		MaxBytes: int64(logMaxMB) << 20,
+		Keep:     logKeep,
+	}, web.LogLevelValue)
 
-	switch level {
-	case LogLevelDebug:
-		zerolog.SetGlobalLevel(zerolog.DebugLevel)
-	case LogLevelInfo:
-		zerolog.SetGlobalLevel(zerolog.InfoLevel)
-	case LogLevelWarn:
-		zerolog.SetGlobalLevel(zerolog.WarnLevel)
-	case LogLevelError:
-		zerolog.SetGlobalLevel(zerolog.ErrorLevel)
-	}
+	zl := zerolog.New(zerolog.MultiLevelWriter(output, sink)).With().Timestamp().Logger()
+	web.SetLogSink(sink)
+
+	logsink.SetGlobalLevel(level)
 
 	return &logger.ZeroLogger{Logger: zl}
+}
+
+// envInt 读取整型环境变量，缺失或非法时返回默认值。
+func envInt(name string, fallback int) int {
+	raw := os.Getenv(name)
+	if raw == "" {
+		return fallback
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil {
+		return fallback
+	}
+	return v
 }
 
 func main() {
 	var (
 		deviceId string
 		logLevel int
+		// 日志落盘配置
+		logDir   string
+		logFile  string
+		logMaxMB int
+		logKeep  int
 		// Web 控制台配置
 		webHost  string
 		webPort  int
@@ -80,6 +112,13 @@ func main() {
 
 	flag.StringVar(&deviceId, "deviceId", "NO_ID", "设备ID")
 	flag.IntVar(&logLevel, "logLevel", web.LogLevelInfo, "日志级别(0=Debug,1=Info,2=Warn,3=Error)")
+
+	// 日志落盘配置：默认在当前工作目录的 logs/ 下按大小轮转。
+	// 与其它参数一致：命令行优先，其次同名环境变量（LOG_DIR / LOG_FILE / LOG_MAX_MB / LOG_KEEP）。
+	flag.StringVar(&logDir, "logDir", logsink.DefaultDirName, "日志目录(默认 logs)")
+	flag.StringVar(&logFile, "logFile", logsink.DefaultFileName, "日志文件名(默认 proxy-client.log)")
+	flag.IntVar(&logMaxMB, "logMaxMB", logsink.DefaultMaxMB, "单个日志文件大小上限(MB，默认 10)")
+	flag.IntVar(&logKeep, "logKeep", logsink.DefaultKeepFiles, "轮转后保留的历史日志文件数量(默认 5)")
 
 	// Web 控制台配置：默认只监听本机，远程访问需要显式指定令牌。
 	flag.StringVar(&webHost, "webHost", "", "Web控制台监听地址(默认 127.0.0.1，0.0.0.0 表示允许局域网访问)")
@@ -105,6 +144,21 @@ func main() {
 		if envId := os.Getenv("deviceId"); envId != "" {
 			deviceId = envId
 		}
+	}
+
+	// 日志落盘配置：命令行优先，其次同名环境变量（LOG_DIR / LOG_FILE / LOG_MAX_MB / LOG_KEEP）。
+	// 与其它参数的处理方式保持一致：显式传参才覆盖环境变量，否则保留环境变量的值。
+	if logDir != logsink.DefaultDirName {
+		_ = os.Setenv("LOG_DIR", logDir)
+	}
+	if logFile != logsink.DefaultFileName {
+		_ = os.Setenv("LOG_FILE", logFile)
+	}
+	if logMaxMB != logsink.DefaultMaxMB {
+		_ = os.Setenv("LOG_MAX_MB", strconv.Itoa(logMaxMB))
+	}
+	if logKeep != logsink.DefaultKeepFiles {
+		_ = os.Setenv("LOG_KEEP", strconv.Itoa(logKeep))
 	}
 
 	// Web 控制台配置：命令行参数优先，其次环境变量（由 StartWeb 读取）。
@@ -140,10 +194,14 @@ func main() {
 		tcp.SetSSLConfig(sslConfig)
 	}
 
-	// 初始化日志系统
+	// 初始化日志系统：必须在 flag.Parse 之后，才能拿到日志落盘配置。
 	log := initLogger(logLevel)
 
-	log.Infof("启动参数 deviceId=%s logLevel=%d", deviceId, logLevel)
+	log.Infof("启动参数 deviceId=%s logLevel=%s(%d)", deviceId, logsink.LevelName(logLevel), logLevel)
+	log.Infof("日志落盘已启用: 目录=%s 文件=%s 单文件上限=%dMB 保留=%d 个历史文件",
+		logsinkValueOr(os.Getenv("LOG_DIR"), logsink.DefaultDirName),
+		logsinkValueOr(os.Getenv("LOG_FILE"), logsink.DefaultFileName),
+		envInt("LOG_MAX_MB", logsink.DefaultMaxMB), envInt("LOG_KEEP", logsink.DefaultKeepFiles))
 
 	// 打印SSL配置状态
 	if sslConfig := tcp.GetSSLConfig(); sslConfig != nil && sslConfig.Enable {
@@ -154,6 +212,14 @@ func main() {
 	web.InitCloudDevice("https://proxy.properos.cn", deviceId, logLevel, log)
 
 	web.StartWeb(webPort, "16.0", log)
+}
+
+// logsinkValueOr 返回环境变量值或默认值（仅用于启动日志展示）。
+func logsinkValueOr(value, fallback string) string {
+	if value == "" {
+		return fallback
+	}
+	return value
 }
 
 // getEnvOrFlag 获取环境变量值，如果环境变量存在则优先使用
