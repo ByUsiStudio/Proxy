@@ -109,8 +109,10 @@
 
   /**
    * el(tag, props, children)
-   * props: class / text / icon / html(仅可信图标) / dataset / style / on* / 其它属性
+   * props: class / text / icon / dataset / style / on* / 其它属性
    * 字符串子节点始终以文本节点插入，不会解析为 HTML。
+   * 注意：这里刻意不提供 html 选项 —— 唯一允许写入 innerHTML 的路径是内置图标表，
+   * 从接口层面杜绝把外部数据当作 HTML 解析的可能。
    */
   PX.el = function (tag, props, children) {
     var node = document.createElement(tag);
@@ -121,7 +123,6 @@
         if (key === 'class') node.className = value;
         else if (key === 'text') node.textContent = value;
         else if (key === 'icon') node.innerHTML = PX.icon(value);
-        else if (key === 'html') node.innerHTML = value;
         else if (key === 'dataset') Object.assign(node.dataset, value);
         else if (key === 'style') Object.assign(node.style, value);
         else if (key.indexOf('on') === 0 && typeof value === 'function') {
@@ -393,8 +394,56 @@
   };
   PX.ApiError.prototype = Object.create(Error.prototype);
 
+  /**
+   * 云端（/hp/*）接口现在要求在调用时携带账号凭据，服务端据此校验归属，
+   * 用来修复“只凭 userId/username 就能读写他人端口、域名、配置”的越权问题。
+   * 这里统一注入，页面自身无需关心。
+   */
+  function isCloudPath(path) {
+    return typeof path === 'string' && path.indexOf('/hp/') === 0;
+  }
+
+  var NO_CREDENTIAL_PATHS = /^\/hp\/user\/(login|reg|email)/;
+
+  function withCredentials(path, opts) {
+    if (!isCloudPath(path) || NO_CREDENTIAL_PATHS.test(path)) return { url: path, opts: opts };
+    var cred = PX.user.credentials();
+    if (!cred || !cred.password) return { url: path, opts: opts };
+
+    if (opts.json !== undefined) {
+      var merged = Object.assign({}, opts.json);
+      if (merged.username === undefined) merged.username = cred.username;
+      if (merged.password === undefined) merged.password = cred.password;
+      return { url: path, opts: Object.assign({}, opts, { json: merged }) };
+    }
+    if (opts.form !== undefined) {
+      var form = Object.assign({}, opts.form);
+      if (form.username === undefined) form.username = cred.username;
+      if (form.password === undefined) form.password = cred.password;
+      return { url: path, opts: Object.assign({}, opts, { form: form }) };
+    }
+    var sep = path.indexOf('?') === -1 ? '?' : '&';
+    return {
+      url: path + sep + 'username=' + encodeURIComponent(cred.username || '') +
+        '&password=' + encodeURIComponent(cred.password),
+      opts: opts
+    };
+  }
+
+  /** 判断云端响应是否因为缺少/错误的凭据而被拒绝。 */
+  function needsCredential(res) {
+    if (!res || res.ok !== true || !res.data || typeof res.data !== 'object') return false;
+    var code = res.data.code !== undefined ? res.data.code : res.data.Code;
+    if (code === 200 || code === 0) return false;
+    var msg = String(res.data.msg || res.data.Msg || '');
+    return msg.indexOf('密码') !== -1 || msg.indexOf('凭据') !== -1 || msg.indexOf('未授权') !== -1;
+  }
+
   function request(path, options) {
-    var opts = options || {};
+    var built = withCredentials(path, options || {});
+    path = built.url;
+    var opts = built.opts;
+
     var headers = {};
     var token = readToken();
     if (token) headers['X-Proxy-Token'] = token;
@@ -468,13 +517,17 @@
       return bootPromise;
     },
     session: function () { return sessionInfo; },
-    /** 带令牌的请求，遇 401 自动重试一次。 */
+    /** 带令牌的请求，遇 401 自动重试一次；云端因缺少凭据被拒时提示验证密码后重试。 */
     send: function (path, options) {
-      return PX.api.bootstrap().then(function () {
-        return request(path, options);
-      }).then(function (res) {
+      var attempt = function () { return request(path, options); };
+      return PX.api.bootstrap().then(attempt).then(function (res) {
         if (res.status === 401) {
-          return PX.api.bootstrap(true).then(function () { return request(path, options); });
+          return PX.api.bootstrap(true).then(attempt);
+        }
+        return res;
+      }).then(function (res) {
+        if (isCloudPath(path) && needsCredential(res) && !PX.user.password()) {
+          return PX.user.askPassword().then(attempt).catch(function () { return res; });
         }
         return res;
       });

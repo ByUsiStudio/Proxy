@@ -18,11 +18,40 @@ public class WebConfig {
     @Value("notReg")
     private Boolean notReg;
 
+    /**
+     * 【安全修复】显式开启后才允许“仅本机访问”跳过 @CheckApi 校验（且必须来自回环地址）。
+     * 与 notReg 完全解耦，避免一个展示开关顺带关掉全部鉴权。
+     */
+    @Value("localOnly")
+    private Boolean localOnly;
+
+    /**
+     * 【安全修复】注册中心共享密钥，必须与 proxy-server 的 proxy.regSecret 一致。
+     */
+    @Value("regSecret")
+    private String regSecret;
+
     @Value("level")
     private Integer level;
 
     @Value("name")
     private String name;
+
+    public String getRegSecret() {
+        return regSecret;
+    }
+
+    public void setRegSecret(String regSecret) {
+        this.regSecret = regSecret;
+    }
+
+    public Boolean getLocalOnly() {
+        return localOnly;
+    }
+
+    public void setLocalOnly(Boolean localOnly) {
+        this.localOnly = localOnly;
+    }
 
     public String getName() {
         return name;

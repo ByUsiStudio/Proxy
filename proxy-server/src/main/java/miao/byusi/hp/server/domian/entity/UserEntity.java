@@ -102,7 +102,7 @@ public class UserEntity {
         return "UserEntity{" +
                 "id='" + id + '\'' +
                 ", username='" + username + '\'' +
-                ", password='" + password + '\'' +
+                ", password='" + (password == null || password.isEmpty() ? "" : "******") + '\'' +
                 ", type=" + type +
                 ", createTime=" + createTime +
                 '}';

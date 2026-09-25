@@ -192,7 +192,17 @@ public class UserService {
     }
 
 
-    public void getLog(final Handler handler,Integer page,String username) {
+    /**
+     * 查询流量统计
+     *
+     * 【安全修复】云端 /statistics/getMyInfo 现在要求携带账号凭据做归属校验
+     * （避免只凭 username 就能读取他人流量记录），因此新增 password 参数。
+     *
+     * @param page     页码
+     * @param username 当前登录账号
+     * @param password 当前登录密码
+     */
+    public void getLog(final Handler handler,Integer page,String username,String password) {
 
         if (page==-1){
             Message message = new Message();
@@ -202,9 +212,11 @@ public class UserService {
             return;
         }
 
+        String safeUser = android.net.Uri.encode(username == null ? "" : username);
+        String safePass = android.net.Uri.encode(password == null ? "" : password);
         OkHttpClient okHttpClient = new OkHttpClient();
         final Request request = new Request.Builder()
-                .url(ConstConfig.URL + "/statistics/getMyInfo?page="+page+"&username="+username)
+                .url(ConstConfig.URL + "/statistics/getMyInfo?page="+page+"&username="+safeUser+"&password="+safePass)
                 .build();
         Call call = okHttpClient.newCall(request);
         call.enqueue(new Callback() {

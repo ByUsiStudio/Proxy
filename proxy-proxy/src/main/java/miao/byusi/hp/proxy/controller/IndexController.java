@@ -102,6 +102,10 @@ public class IndexController {
         backList(request, response);
     }
 
+    /**
+     * 【安全修复】原实现缺少 @CheckApi，匿名调用即可清空全部在线用户状态。
+     */
+    @CheckApi
     @GET("/clearAll")
     public void clearAll(HttpRequest request, HttpResponse response) {
         CostConfig.IP_USER.clear();

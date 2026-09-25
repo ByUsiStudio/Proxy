@@ -10,6 +10,7 @@ import miao.byusi.hp.server.domian.vo.UserVo;
 import miao.byusi.hp.server.service.UserService;
 import miao.byusi.hp.server.utils.DateUtil;
 import miao.byusi.hp.server.utils.IpUtil;
+import miao.byusi.hp.server.utils.SafeInputUtil;
 import org.beetl.sql.core.SQLReady;
 import org.beetl.sql.core.page.PageResult;
 import cn.hserver.core.ioc.annotation.Autowired;
@@ -78,7 +79,11 @@ public class UserServiceImpl implements UserService {
                 return null;
             }
         }
-        if (user.getPassword().equals(password)&&user.getType()!=-1) {
+        // 【安全修复】空口令一律拒绝：init.sql 不再内置默认密码，存量空密码账号必须由管理员先设置密码
+        if (SafeInputUtil.isBlank(user.getPassword()) || SafeInputUtil.isBlank(password)) {
+            return null;
+        }
+        if (SafeInputUtil.safeEquals(user.getPassword(), password) && user.getType()!=-1) {
             List<PortEntity> select = getPort(user.getId());
             List<DomainEntity> domainEntityList = getDomain(user.getId());
             UserVo userVo = new UserVo();
@@ -110,7 +115,12 @@ public class UserServiceImpl implements UserService {
         if (user == null) {
             return null;
         }
-        if (user.getPassword().equals(password)&&user.getType()!=-1) {
+        // 【安全修复】空口令一律拒绝；密码比较改为常量时间比较，避免时序侧信道。
+        // （原实现 user.getPassword().equals(password) 在密码为空时会直接放行空密码登录）
+        if (SafeInputUtil.isBlank(user.getPassword()) || SafeInputUtil.isBlank(password)) {
+            return null;
+        }
+        if (SafeInputUtil.safeEquals(user.getPassword(), password) && user.getType()!=-1) {
             List<PortEntity> select = getPort(user.getId());
             List<DomainEntity> domain = getDomain(user.getId());
             UserVo userVo = new UserVo();
@@ -182,27 +192,28 @@ public class UserServiceImpl implements UserService {
     @Override
     public void editUser(String username, String password, String ports, Integer type, Integer level,String domains,String hasCloseCheckPhoto) {
         UserEntity user = getUser(username);
-        if (user != null) {
-            if (type != null) {
-                user.setType(type);
-                if (type == -1) {
-                    //强制下线操作
-                }
-            }
-            if (level != null) {
-                user.setLevel(level);
-            }
-            user.setHasCloseCheckPhoto(hasCloseCheckPhoto);
-            user.setPassword(password);
-            userDao.updateById(user);
+        if (user == null) {
+            // 【安全修复】原实现 user 为 null 时仍继续执行 user.getId() 直接 NPE，这里提前返回
+            return;
         }
-        assert user != null;
+        if (type != null) {
+            user.setType(type);
+            if (type == -1) {
+                //强制下线操作
+            }
+        }
+        if (level != null) {
+            user.setLevel(level);
+        }
+        user.setHasCloseCheckPhoto(hasCloseCheckPhoto);
+        user.setPassword(password);
+        userDao.updateById(user);
         List<PortEntity> port = getPort(user.getId());
         for (PortEntity portEntity : port) {
             portDao.deleteById(portEntity.getId());
         }
         // 修复ports为空情况
-        if (!ports.equals("")) {
+        if (ports != null && !ports.equals("")) {
             String[] split = ports.split(",");
             if (split.length > 0) {
                 for (String s : split) {
@@ -220,6 +231,10 @@ public class UserServiceImpl implements UserService {
     public boolean addUser(String username, String password, String ports, String domains, Integer level,String hasCloseCheckPhoto) {
         UserEntity user = getUser(username);
         //存在的用户就更新密码
+        // 【安全修复】本方法会覆盖已有账号密码，因此只允许两类调用方：
+        //   1) 后台管理员（/admin/user/add，已通过后台会话鉴权）；
+        //   2) /user/reg 的“注册或重置”流程，且调用前必须已校验该账号本人的一次性邮箱验证码。
+        // 绝不能再被无验证的匿名路径直接调用。
         if (user != null) {
             user.setPassword(password.trim());
             userDao.updateById(user);
@@ -287,22 +302,25 @@ public class UserServiceImpl implements UserService {
         instance.setTime(new Date());
         instance.add(Calendar.MONTH, -1);
         //过期的用户查询然后删除端口配置，域名配置，自定义启动配置
+        // 【安全修复】原实现用字符串拼接构造 SQL（存在注入风险），且 sys_user 表主键是 id 而非 user_id。
+        // 现统一改为绑定参数（SQLReady 的 ? 占位符）。
         List<String> execute = userDao.getSQLManager().execute(
-                new SQLReady("select user_id from sys_user where (level is null or level = 0) and login_time < " + instance.getTimeInMillis()),
+                new SQLReady("select id from sys_user where (level is null or level = 0) and login_time < ?",
+                        String.valueOf(instance.getTimeInMillis())),
                 String.class
         );
         for (String s : execute) {
             userDao.getSQLManager().executeUpdate(
-                    new SQLReady("delete from sys_user where user_id='"+s+"'")
+                    new SQLReady("delete from sys_user where id = ?", s)
             );
             userDao.getSQLManager().executeUpdate(
-                    new SQLReady("delete from sys_domain where user_id='"+s+"'")
+                    new SQLReady("delete from sys_domain where user_id = ?", s)
             );
             userDao.getSQLManager().executeUpdate(
-                    new SQLReady("delete from sys_config where user_id='"+s+"'")
+                    new SQLReady("delete from sys_config where user_id = ?", s)
             );
             userDao.getSQLManager().executeUpdate(
-                    new SQLReady("delete from sys_port where user_id='"+s+"'")
+                    new SQLReady("delete from sys_port where user_id = ?", s)
             );
         }
     }

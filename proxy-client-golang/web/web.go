@@ -1,6 +1,7 @@
 package web
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/subtle"
 	"crypto/tls"
@@ -887,14 +888,36 @@ func handleConfigImport(c *gin.Context) {
 	}
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20)
 
+	// 先把请求体完整读入（受限长度），再决定按 JSON 还是表单解析。
+	// 直接对 Body 做 json.Decode 会在失败时把表单体消耗掉，导致表单回退永远拿到空值。
+	body, err := io.ReadAll(http.MaxBytesReader(c.Writer, c.Request.Body, 1<<20))
+	if err != nil {
+		c.JSON(http.StatusOK, Res{Code: -1, Msg: "配置内容读取失败或超出大小限制"})
+		return
+	}
+	trimmed := bytes.TrimSpace(body)
+	if len(trimmed) == 0 {
+		c.JSON(http.StatusOK, Res{Code: -1, Msg: "配置内容为空"})
+		return
+	}
+
+	// 表单参数（当请求体是 application/x-www-form-urlencoded 时可用）
+	formValues, _ := url.ParseQuery(string(trimmed))
+
 	var payload ExportPayload
-	if err := json.NewDecoder(c.Request.Body).Decode(&payload); err != nil {
-		var list []ExportedTunnel
-		if err2 := json.Unmarshal([]byte(c.PostForm("tunnels")), &list); err2 != nil {
+	if trimmed[0] == '[' {
+		// 兼容直接把隧道数组作为请求体
+		if err := json.Unmarshal(trimmed, &payload.Tunnels); err != nil {
 			c.JSON(http.StatusOK, Res{Code: -1, Msg: "配置内容不是合法的 JSON"})
 			return
 		}
-		payload.Tunnels = list
+	} else if err := json.Unmarshal(trimmed, &payload); err != nil {
+		// 回退：表单字段 tunnels=<JSON>
+		raw := formValues.Get("tunnels")
+		if raw == "" || json.Unmarshal([]byte(raw), &payload.Tunnels) != nil {
+			c.JSON(http.StatusOK, Res{Code: -1, Msg: "配置内容不是合法的 JSON"})
+			return
+		}
 	}
 	if len(payload.Tunnels) == 0 {
 		c.JSON(http.StatusOK, Res{Code: -1, Msg: "配置中没有可导入的隧道"})
@@ -907,6 +930,12 @@ func handleConfigImport(c *gin.Context) {
 
 	fallbackUser := strings.TrimSpace(c.PostForm("username"))
 	fallbackPass := c.PostForm("password")
+	if fallbackUser == "" {
+		fallbackUser = strings.TrimSpace(formValues.Get("username"))
+	}
+	if fallbackPass == "" {
+		fallbackPass = formValues.Get("password")
+	}
 
 	created, skipped := 0, 0
 	failures := make([]string, 0)
@@ -1169,6 +1198,7 @@ func contentTypeFor(name string) string {
 func handleStatic(c *gin.Context) {
 	name := strings.TrimPrefix(c.Param("filepath"), "/")
 	if name == "" {
+		// 不做目录列举：空路径统一返回控制台入口页，避免暴露资源清单。
 		name = "login.html"
 	}
 	name = path.Clean(name)

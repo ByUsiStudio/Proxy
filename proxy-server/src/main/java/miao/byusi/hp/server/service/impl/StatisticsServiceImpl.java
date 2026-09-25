@@ -70,8 +70,9 @@ public class StatisticsServiceImpl implements StatisticsService {
         Calendar instance = Calendar.getInstance();
         instance.setTime(new Date());
         instance.add(Calendar.MONTH,-1);
+        // 【安全修复】原实现把时间戳直接拼进 SQL，改为绑定参数
         statisticsDao.getSQLManager().executeUpdate(
-                new SQLReady("delete from sys_statistics where create_time <"+instance.getTimeInMillis())
+                new SQLReady("delete from sys_statistics where create_time < ?", String.valueOf(instance.getTimeInMillis()))
         );
     }
 }

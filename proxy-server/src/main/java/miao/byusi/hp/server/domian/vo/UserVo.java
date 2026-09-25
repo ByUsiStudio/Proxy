@@ -149,10 +149,11 @@ public class UserVo {
 
     @Override
     public String toString() {
+        // 【安全修复】避免日志/异常信息把账号密码打出来
         return "UserVo{" +
                 "id='" + id + '\'' +
                 ", username='" + username + '\'' +
-                ", password='" + password + '\'' +
+                ", password='" + (password == null || password.isEmpty() ? "" : "******") + '\'' +
                 ", type=" + type +
                 ", ports=" + ports +
                 ", createTime='" + createTime + '\'' +

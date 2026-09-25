@@ -30,9 +30,10 @@ public class WebConfig {
 
     @Override
     public String toString() {
+        // 【安全修复】toString 可能被框架日志打印，绝不能带出后台密码明文
         return "WebConfig{" +
                 "host='" + host + '\'' +
-                ", password='" + password + '\'' +
+                ", password='" + (password == null || password.isEmpty() ? "" : "******") + '\'' +
                 '}';
     }
 }

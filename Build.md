@@ -91,8 +91,12 @@ export SSL_SERVER_NAME=your.server.com
 nano proxy-client-golang/main.go  
 ```  
 > **关键修改**：  
-> 将对应行 `web.InitCloudDevice("http://proxy.byusi.cn:9090", deviceId, logLevel)`  
-> 中的URL替换为你的服务器地址  
+> 将 `web.InitCloudDevice("https://proxy.properos.cn", deviceId, logLevel, log)`  
+> 中的 URL 替换为你的服务端地址（**请使用 https，避免账号密码明文传输**）
+>
+> **Web 控制台**默认只监听 `127.0.0.1:10240`。如需局域网访问，用  
+> `./proxy-client -webHost 0.0.0.0 -webToken <随机令牌>` 启动，再用  
+> `http://主机地址:10240/?token=<随机令牌>` 打开。
 
 ---
 

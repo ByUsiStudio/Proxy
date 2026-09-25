@@ -1,107 +1,103 @@
+<#--  管理后台公共外壳：顶栏 + 分组导航抽屉 + 主题控制 + 退出登录
+      静态资源路径 / 导航路由与原模板完全一致，只替换视觉与交互实现。
+      主题初始化脚本为纯静态内联脚本（不含任何服务端插值），用于消除首屏闪烁。  -->
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0,maximum-scale=1.0, user-scalable=no"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1"/>
     <meta name="renderer" content="webkit">
     <meta http-equiv="Cache-Control" content="no-siteapp"/>
+    <title>Proxy内网穿透</title>
+    <script>
+        /* 首屏主题：与 admin.js 使用同一个 localStorage 键（px_admin_theme），
+           仅做字符串比较取值，不拼接任何服务端数据。 */
+        (function () {
+            try {
+                var mode = localStorage.getItem('px_admin_theme');
+                var dark = mode === 'dark' || (mode !== 'light' &&
+                    window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+                document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+                document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+            } catch (e) { /* 隐私模式下忽略 */ }
+        })();
+    </script>
     <link rel="stylesheet" href="/common/css/mdui.min.css"/>
     <link rel="stylesheet" href="/common/css/paging.css"/>
+    <link rel="stylesheet" href="/common/css/admin.css"/>
     <script src="/common/js/jquery.min.js"></script>
     <script src="/common/js/paging.js"></script>
     <script src="/common/js/mdui.min.js"></script>
-    <title>Proxy内网穿透</title>
+    <script src="/common/js/admin.js"></script>
 </head>
-<style>
-    .mdui-overlay-show {
-        z-index: 1 !important;
-        display: none !important;
-    }
-</style>
-<body class="mdui-drawer-body-left mdui-appbar-with-toolbar  mdui-theme-primary-indigo mdui-theme-accent-pink mdui-theme-layout-auto">
-<header class="mdui-appbar mdui-appbar-fixed">
-    <div class="mdui-toolbar mdui-color-theme">
-        <span class="mdui-btn mdui-btn-icon mdui-ripple mdui-ripple-white"
-              mdui-drawer="{target: '#main-drawer', swipe: true}"><i class="mdui-icon material-icons">menu</i></span>
-        <a href="/admin/proxy" class="mdui-typo-headline mdui-hidden-xs">内网穿透</a>
-        <div class="mdui-toolbar-spacer"></div>
+<body class="mdui-theme-layout-auto">
+<header class="admin-appbar">
+    <button type="button" class="btn btn--ghost btn--icon show-md" data-nav-toggle aria-label="打开菜单">
+        <span data-icon="menu"></span>
+    </button>
+    <a class="admin-appbar__title" href="/admin/proxy">
+        <span class="brand__mark"><span data-icon="rocket" data-icon-class="icon--sm"></span></span>
+        <span class="truncate">内网穿透</span>
+        <span class="brand__sub" data-page-title></span>
+    </a>
+    <div class="admin-appbar__actions">
+        <span id="themeSlot" class="icon-slot"></span>
+        <a class="btn btn--ghost btn--sm" href="/admin/logout">
+            <span data-icon="logout" data-icon-class="icon--sm"></span>
+            <span class="btn__label">退出登录</span>
+        </a>
     </div>
 </header>
-<!--菜單-->
-<div class="mdui-drawer" id="main-drawer">
-    <div class="mdui-list" mdui-collapse="{accordion: true}" style="margin-bottom: 76px;">
-<#--        <div class="mdui-collapse-item mdui-collapse-item-open">-->
-<#--            <a class="mdui-collapse-item-header mdui-list-item mdui-ripple" href="/admin">-->
-<#--                <i class="mdui-list-item-icon mdui-icon material-icons mdui-text-color-blue">near_me</i>-->
-<#--                <div class="mdui-list-item-content">系统监控</div>-->
-<#--            </a>-->
-<#--        </div>-->
 
-        <a class="mdui-collapse-item mdui-collapse-item-open" href="/admin/proxy">
-            <div class="mdui-collapse-item-header mdui-list-item mdui-ripple">
-                <i class="mdui-list-item-icon mdui-icon  material-icons mdui-text-color-black">layers</i>
-                <div class="mdui-list-item-content">穿透集群</div>
-            </div>
-        </a>
+<div class="admin-shell">
+    <aside class="admin-drawer" id="main-drawer" aria-label="后台导航">
+        <nav class="nav">
+            <div class="nav__group">穿透服务</div>
+            <a class="nav__link" href="/admin/proxy">
+                <span data-icon="layers"></span><span>穿透集群</span>
+            </a>
+            <a class="nav__link" href="/admin/config">
+                <span data-icon="sync"></span><span>自动穿透</span>
+            </a>
 
-        <a class="mdui-collapse-item mdui-collapse-item-open" href="/admin/user">
-            <div class="mdui-collapse-item-header mdui-list-item mdui-ripple">
-                <i class="mdui-list-item-icon mdui-icon material-icons mdui-text-color-deep-orange">layers</i>
-                <div class="mdui-list-item-content">用户管理</div>
-            </div>
-        </a>
+            <div class="nav__group">用户与域名</div>
+            <a class="nav__link" href="/admin/user">
+                <span data-icon="users"></span><span>用户管理</span>
+            </a>
+            <a class="nav__link" href="/admin/domain">
+                <span data-icon="globe"></span><span>域名管理</span>
+            </a>
+            <a class="nav__link" href="/admin/log">
+                <span data-icon="list"></span><span>用户日志</span>
+            </a>
 
-        <a class="mdui-collapse-item mdui-collapse-item-open" href="/admin/domain">
-            <div class="mdui-collapse-item-header mdui-list-item mdui-ripple">
-                <i class="mdui-list-item-icon mdui-icon material-icons mdui-text-color-cyan-300">layers</i>
-                <div class="mdui-list-item-content">域名管理</div>
-            </div>
-        </a>
+            <div class="nav__group">内容与版本</div>
+            <a class="nav__link" href="/admin/tips">
+                <span data-icon="info"></span><span>公告管理</span>
+            </a>
+            <a class="nav__link" href="/admin/core">
+                <span data-icon="cpu"></span><span>内核版本</span>
+            </a>
+            <a class="nav__link" href="/admin/app">
+                <span data-icon="box"></span><span>app版本</span>
+            </a>
 
-        <a class="mdui-collapse-item mdui-collapse-item-open" href="/admin/config">
-            <div class="mdui-collapse-item-header mdui-list-item mdui-ripple">
-                <i class="mdui-list-item-icon mdui-icon material-icons mdui-text-color-deep-orange-a100">layers</i>
-                <div class="mdui-list-item-content">自动穿透</div>
-            </div>
-        </a>
-        <a class="mdui-collapse-item mdui-collapse-item-open" href="/admin/log">
-            <div class="mdui-collapse-item-header mdui-list-item mdui-ripple">
-                <i class="mdui-list-item-icon mdui-icon material-icons mdui-text-color-blue">layers</i>
-                <div class="mdui-list-item-content">用户日志</div>
-            </div>
-        </a>
+            <div class="nav__group">运营配置</div>
+            <a class="nav__link" href="/admin/reg">
+                <span data-icon="key"></span><span>注册管理</span>
+            </a>
+            <a class="nav__link" href="/admin/pay">
+                <span data-icon="coins"></span><span>打赏管理</span>
+            </a>
 
-        <a class="mdui-collapse-item mdui-collapse-item-open" href="/admin/tips">
-            <div class="mdui-collapse-item-header mdui-list-item mdui-ripple">
-                <i class="mdui-list-item-icon mdui-icon  material-icons mdui-text-color-purple">layers</i>
-                <div class="mdui-list-item-content">公告管理</div>
+            <div class="nav__foot">
+                <a class="nav__link nav__link--danger" href="/admin/logout" style="margin-bottom:.5rem">
+                    <span data-icon="logout" data-icon-class="icon--sm"></span><span>退出登录</span>
+                </a>
+                <div>Proxy 内网穿透 · 管理后台</div>
             </div>
-        </a>
-        <a class="mdui-collapse-item mdui-collapse-item-open" href="/admin/core">
-            <div class="mdui-collapse-item-header mdui-list-item mdui-ripple">
-                <i class="mdui-list-item-icon mdui-icon material-icons mdui-text-color-cyan-a400">layers</i>
-                <div class="mdui-list-item-content">内核版本</div>
-            </div>
-        </a>
-        <a class="mdui-collapse-item mdui-collapse-item-open" href="/admin/app">
-            <div class="mdui-collapse-item-header mdui-list-item mdui-ripple">
-                <i class="mdui-list-item-icon mdui-icon material-icons mdui-text-color-green">layers</i>
-                <div class="mdui-list-item-content">app版本</div>
-            </div>
-        </a>
-        <a class="mdui-collapse-item mdui-collapse-item-open" href="/admin/reg">
-            <div class="mdui-collapse-item-header mdui-list-item mdui-ripple">
-                <i class="mdui-list-item-icon mdui-icon material-icons mdui-text-color-amber">layers</i>
-                <div class="mdui-list-item-content">注册管理</div>
-            </div>
-        </a>
-        <a class="mdui-collapse-item mdui-collapse-item-open" href="/admin/pay">
-            <div class="mdui-collapse-item-header mdui-list-item mdui-ripple">
-                <i class="mdui-list-item-icon mdui-icon material-icons mdui-text-color-cyan-a100">layers</i>
-                <div class="mdui-list-item-content">打赏管理</div>
-            </div>
-        </a>
-    </div>
-</div>
+        </nav>
+    </aside>
+    <div class="scrim" id="drawer-scrim" data-nav-close></div>
+    <div class="admin-main">

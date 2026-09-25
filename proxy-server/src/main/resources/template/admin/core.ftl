@@ -1,85 +1,105 @@
 <#include "./header.ftl">
-<#--监控页面-->
-<div style="padding: 1rem">
-
-    <div style="padding: .6rem">
-        <button class="mdui-btn mdui-btn-raised mdui-btn-dense mdui-color-deep-purple-accent mdui-ripple"
-                onclick="new mdui.Dialog('#add').open()">
-            添加版本
-        </button>
+<#--  内核版本
+      model（CoreController#index）：page / pageSize / totalRow / totalPage / list(List<CoreEntity>)
+      CoreEntity：id / versionCode / updateContent / createTime  -->
+<main class="content">
+    <div class="page-head">
+        <div>
+            <h1 class="page-head__title">内核版本</h1>
+            <div class="page-head__desc">发布内核版本号与更新说明。</div>
+        </div>
+        <div class="toolbar">
+            <button type="button" class="btn btn--primary" data-dialog-open="add">
+                <span data-icon="plus" data-icon-class="icon--sm"></span>
+                <span>添加版本</span>
+            </button>
+        </div>
     </div>
 
-    <div class="mdui-table-fluid">
-        <table class="mdui-table">
-            <thead>
-            <tr>
-                <th>id</th>
-                <th>版本号</th>
-                <th>更新内容</th>
-                <th>创建时间</th>
-                <th>操作</th>
-            </tr>
-            </thead>
-            <tbody>
-            <#if list??>
-                <#list list as core>
-                    <tr>
-                        <td>${core.id}</td>
-                        <td>${core.versionCode}</td>
-                        <td>${core.updateContent}</td>
-                        <td>${core.createTime}</td>
-                        <td>
-                            <a class="mdui-btn mdui-btn-raised mdui-btn-dense mdui-color-deep-orange-accent mdui-ripple"
-                               href="/admin/core/remove?page=${page}&id=${core.id}">
-                                删除
-                            </a>
-                        </td>
-                    </tr>
-                </#list>
-            </#if>
-            </tbody>
-        </table>
-    </div>
-    <div class="pagger-box pagger" id="box"></div>
+    <section class="card">
+        <div class="card__head">
+            <div class="card__title">
+                <span data-icon="cpu" data-icon-class="icon--sm"></span>
+                <span>版本列表</span>
+                <span class="card__hint">共 ${totalRow?c} 条</span>
+            </div>
+            <div class="toolbar">
+                <input class="input" type="search" data-table-filter="coreTable"
+                       placeholder="本页过滤" aria-label="本页快速过滤"/>
+            </div>
+        </div>
+        <div class="table-wrap card__body--flush">
+            <table class="table" id="coreTable" data-sortable="true">
+                <thead>
+                <tr>
+                    <th>id</th>
+                    <th>版本号</th>
+                    <th>更新内容</th>
+                    <th>创建时间</th>
+                    <th data-sort-ignore>操作</th>
+                </tr>
+                </thead>
+                <tbody>
+                <#if list??>
+                    <#list list as core>
+                        <tr>
+                            <td class="mono">${(core.id!"")?html}</td>
+                            <td><span class="badge badge--info">${(core.versionCode!"")?html}</span></td>
+                            <td>${(core.updateContent!"")?html}</td>
+                            <td>${(core.createTime!"")?html}</td>
+                            <td>
+                                <div class="cell-actions">
+                                    <#--  保持原 href 不变  -->
+                                    <a class="btn btn--danger btn--sm"
+                                       href="/admin/core/remove?page=${page?c}&id=${(core.id!"")?url}"
+                                       data-confirm="确定删除内核版本 ${(core.versionCode!"")?html} 吗？"
+                                       data-confirm-title="删除版本">
+                                        <span data-icon="trash" data-icon-class="icon--sm"></span>
+                                        <span>删除</span>
+                                    </a>
+                                </div>
+                            </td>
+                        </tr>
+                    </#list>
+                </#if>
+                </tbody>
+            </table>
+        </div>
+        <div id="box" class="pagger"
+             data-pager-url="/admin/core"
+             data-pager-page="${page?c}"
+             data-pager-total="${totalPage?c}"></div>
+    </section>
 
-    <#--  添加  -->
-
-    <div class="mdui-dialog" id="add">
-        <form method="post" action="/admin/core/add?page=${page}">
-            <div class="mdui-dialog-content">
-                <div class="mdui-textfield">
-                    <input class="mdui-textfield-input" name="versionCode" placeholder="版本号" type="text"/>
+    <#--  添加弹窗：与原实现相同的 form action / 字段名  -->
+    <div class="modal" id="add" role="dialog" aria-modal="true" aria-hidden="true" aria-label="添加版本">
+        <form class="modal__panel" method="post" action="/admin/core/add?page=${page?c}">
+            <div class="modal__head">
+                <h3 class="modal__title">添加版本</h3>
+                <button type="button" class="btn btn--ghost btn--icon" data-dialog-close aria-label="关闭">
+                    <span data-icon="close" data-icon-class="icon--sm"></span>
+                </button>
+            </div>
+            <div class="modal__body">
+                <div class="field">
+                    <label class="field__label" for="core-version">版本号</label>
+                    <input class="input" id="core-version" name="versionCode" placeholder="版本号" type="text"
+                           data-autofocus required/>
                 </div>
-                <div class="mdui-textfield">
-                    <input class="mdui-textfield-input" name="updateContent" placeholder="更新类容" type="text"/>
+                <div class="field">
+                    <label class="field__label" for="core-content">更新内容</label>
+                    <input class="input" id="core-content" name="updateContent" placeholder="更新类容" type="text"/>
                 </div>
             </div>
-            <div class="mdui-dialog-actions">
-                <button class="mdui-btn mdui-ripple" mdui-dialog-cancel>取消</button>
-                <button type="submit" class="mdui-btn mdui-ripple">确定</button>
+            <div class="modal__foot">
+                <button type="button" class="btn btn--ghost" data-dialog-close>取消</button>
+                <button type="submit" class="btn btn--primary">确定</button>
             </div>
         </form>
     </div>
-
-
-</div>
+</main>
 <script>
-    var pageConst =${page?c};
-    $('#box').paging({
-        initPageNo: ${page?c}, // 初始页码
-        totalPages: ${totalPage?c}, //总页数
-        slideSpeed: 600, // 缓动速度。单位毫秒
-        jump: true, //是否支持跳转
-        callback: function (page) { // 回调函数
-            if (pageConst != page) {
-                location.href = "/admin/core?page=" + page;
-            }
-            console.log(page)
-        }
-    })
-
-    var tab = new mdui.Tab('#example4-tab');
-
+    Admin.setTitle('内核版本');
 </script>
 </body>
 </html>
