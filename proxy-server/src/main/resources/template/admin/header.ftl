@@ -30,6 +30,8 @@
     <script src="/common/js/paging.js"></script>
     <script src="/common/js/mdui.min.js"></script>
     <script src="/common/js/admin.js"></script>
+    <#--  纯前端二维码编码器：仅「自动穿透」页的分享功能使用，无外部依赖  -->
+    <script src="/common/js/qrcode.js"></script>
 </head>
 <body class="mdui-theme-layout-auto">
 <header class="admin-appbar">

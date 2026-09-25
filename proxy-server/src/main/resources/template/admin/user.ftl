@@ -61,7 +61,17 @@
                     <#list list as userVo>
                         <tr>
                             <td>${(userVo.username!"")?html}</td>
-                            <td class="mono">${(userVo.password!"")?html}</td>
+                             <td>
+                                <#--  【安全加固】不在列表里输出口令明文：
+                                      一页 10 个账号的口令同时出现在屏幕上，任何截图、投屏或
+                                      旁观都会造成批量凭据泄露。这里只显示「是否已设置」，
+                                      需要查看/修改时进入编辑弹窗（弹窗内默认打码，可点「显示」）。  -->
+                                <#if (userVo.password!"")?has_content>
+                                    <span class="badge badge--muted">已设置</span>
+                                <#else>
+                                    <span class="badge badge--down">未设置</span>
+                                </#if>
+                            </td>
                             <td>
                                 <#list userVo.ports! as port>${port?c}<#if port_has_next>, </#if></#list>
                             </td>
@@ -127,8 +137,19 @@
                             <input class="input" name="username" readonly type="text" value="${userVo.username?html}"/>
                         </div>
                         <div class="field">
-                            <label class="field__label">密码</label>
-                            <input class="input" name="password" type="text" value="${(userVo.password!"")?html}"/>
+                            <label class="field__label" for="pwd-${userVo.id?html}">
+                                密码
+                                <span class="field__hint">留空表示不修改；点击「显示」可查看当前值</span>
+                            </label>
+                            <div class="field-row">
+                                <input class="input" id="pwd-${userVo.id?html}" name="password" type="password"
+                                       autocomplete="new-password" value="${(userVo.password!"")?html}"/>
+                                <button type="button" class="btn btn--ghost btn--sm" data-toggle-password="pwd-${userVo.id?html}"
+                                        aria-label="显示或隐藏密码">
+                                    <span data-icon="eye" data-icon-class="icon--sm"></span>
+                                    <span>显示</span>
+                                </button>
+                            </div>
                         </div>
                         <div class="field">
                             <label class="field__label">类型：-1(封号) 1(正常) 2(待审核，目前也是正常后期放开)</label>
@@ -175,7 +196,8 @@
                 </div>
                 <div class="field">
                     <label class="field__label" for="add-password">密码</label>
-                    <input class="input" id="add-password" name="password" placeholder="密码" type="text"/>
+                    <input class="input" id="add-password" name="password" type="password"
+                           autocomplete="new-password" placeholder="密码"/>
                 </div>
                 <div class="field">
                     <label class="field__label" for="add-ports">端口号</label>
@@ -195,6 +217,19 @@
 </main>
 <script>
     Admin.setTitle('用户管理');
+
+    /* 密码显隐切换：仅切换 input 的 type，不复制也不缓存口令值。 */
+    document.addEventListener('click', function (ev) {
+        var btn = ev.target.closest && ev.target.closest('[data-toggle-password]');
+        if (!btn) { return; }
+        var input = document.getElementById(btn.getAttribute('data-toggle-password'));
+        if (!input) { return; }
+        var show = input.type === 'password';
+        input.type = show ? 'text' : 'password';
+        btn.setAttribute('aria-pressed', show ? 'true' : 'false');
+        var label = btn.querySelector('span:last-child');
+        if (label) { label.textContent = show ? '隐藏' : '显示'; }
+    });
 </script>
 </body>
 </html>

@@ -30,6 +30,20 @@
         </div>
     </div>
 
+    <#--  安全提示：节点管理链接需要携带集群级 token。
+          该 token 出现在 URL 中会进入浏览器历史、Referer 与各级访问日志，
+          因此所有外链都设置 rel="noopener noreferrer" 与 referrerpolicy="no-referrer"，
+          并在此明确提示运维不要将带 token 的链接转发或截图。  -->
+    <div class="alert alert--warn">
+        <span data-icon="warn"></span>
+        <div>
+            下方「数据分析 / 黑名单 / 图片过滤」链接会携带<strong>集群访问令牌</strong>。
+            令牌出现在 URL 中可能被浏览器历史、Referer 与访问日志记录，
+            请勿转发或截图这些链接；如需长期使用，建议为节点接口改为请求头携带令牌
+            （属架构级改造，见 <code>doc/SECURITY.md</code>）。
+        </div>
+    </div>
+
     <section class="card">
         <div class="card__head">
             <div class="card__title">
@@ -64,17 +78,20 @@
                             <td>${(app.level!0)?c}</td>
                             <td>
                                 <div class="cell-actions">
-                                    <a class="btn btn--subtle btn--sm" target="_blank" rel="noopener"
+                                    <a class="btn btn--subtle btn--sm" target="_blank" rel="noopener noreferrer"
+                                       referrerpolicy="no-referrer"
                                        href="http://${(app.ip!"")?html}/statistics?token=${(token!"")?url}">
                                         <span data-icon="chart" data-icon-class="icon--sm"></span>
                                         <span>数据分析</span>
                                     </a>
-                                    <a class="btn btn--subtle btn--sm" target="_blank" rel="noopener"
+                                    <a class="btn btn--subtle btn--sm" target="_blank" rel="noopener noreferrer"
+                                       referrerpolicy="no-referrer"
                                        href="http://${(app.ip!"")?html}/backList?token=${(token!"")?url}">
                                         <span data-icon="list" data-icon-class="icon--sm"></span>
                                         <span>黑名单</span>
                                     </a>
-                                    <a class="btn btn--subtle btn--sm" target="_blank" rel="noopener"
+                                    <a class="btn btn--subtle btn--sm" target="_blank" rel="noopener noreferrer"
+                                       referrerpolicy="no-referrer"
                                        href="http://${(app.ip!"")?html}/photoList?token=${(token!"")?url}">
                                         <span data-icon="eye" data-icon-class="icon--sm"></span>
                                         <span>图片过滤</span>

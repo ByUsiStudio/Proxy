@@ -33,11 +33,16 @@ public class AuthFilter implements FilterAdapter {
 
     /**
      * 管理后台中允许使用 GET 的只读页面（其余 admin 路由必须使用 POST/PUT/DELETE）。
+     * <p>
+     * 只读的导出/聚合接口也在此列：它们不改变服务端状态，
+     * 且浏览器无法通过 {@code <img>}/{@code <a>} 读取响应体，因此不构成 CSRF 风险。
      */
     private static final Set<String> ADMIN_GET_PAGES = new HashSet<>(Arrays.asList(
             "/admin", "/admin/proxy", "/admin/user", "/admin/domain", "/admin/config",
             "/admin/log", "/admin/tips", "/admin/core", "/admin/app", "/admin/reg", "/admin/pay",
-            "/admin/login", "/admin/logout"
+            "/admin/login", "/admin/logout",
+            // 只读接口（导出 / 图表数据）
+            "/admin/log/export", "/admin/log/stats", "/admin/config/export"
     ));
 
     /**

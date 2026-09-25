@@ -66,7 +66,22 @@ const (
 	maxTunnels = 512
 	// maxQRBytes 二维码可承载的最大字节数（QR 版本 40 / 纠错级别 M）。
 	maxQRBytes = 2000
+	// maxWSClients 日志 WebSocket 的最大并发连接数。
+	// 每个连接都会占用隧道数据协程的推送预算，必须设上限。
+	maxWSClients = 64
+	// wsOutboundQueue 单个 WebSocket 客户端的出站缓冲队列长度。
+	// 队列满说明前端消费不过来，日志直接丢弃，绝不阻塞隧道协程。
+	wsOutboundQueue = 128
+	// minWebTokenLength WEB_TOKEN 的最小长度，低于该长度视为弱令牌并拒绝使用。
+	minWebTokenLength = 16
+	// maxAuthFailuresPerWindow 同一 IP 在 authFailureWindow 内允许的令牌校验失败次数。
+	maxAuthFailuresPerWindow = 10
+	// maxRateLimiterKeys 限流器 map 的键数量上限，超出后淘汰最旧的键，保证内存有界。
+	maxRateLimiterKeys = 1024
 )
+
+// authFailureWindow 令牌校验失败的统计窗口。
+const authFailureWindow = 5 * time.Minute
 
 var (
 	logLevel     = LogLevelInfo
@@ -94,10 +109,12 @@ var (
 	tokenEnforced bool
 	boundPort     int
 
-	tunnelMu     sync.Mutex
-	addLimiter   = newRateLimiter(30, time.Minute)
-	apiClient    = &http.Client{Timeout: 15 * time.Second}
-	apiTransport = &http.Transport{
+	tunnelMu   sync.Mutex
+	addLimiter = newRateLimiter(30, time.Minute)
+	// authFailLimiter 记录令牌校验失败次数，防止令牌被在线暴力枚举。
+	authFailLimiter = newRateLimiter(maxAuthFailuresPerWindow, authFailureWindow)
+	apiClient       = &http.Client{Timeout: 15 * time.Second}
+	apiTransport    = &http.Transport{
 		Proxy:                 http.ProxyFromEnvironment,
 		DialContext:           (&net.Dialer{Timeout: 8 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
 		ForceAttemptHTTP2:     true,
@@ -202,8 +219,26 @@ type TunnelMeta struct {
 }
 
 type tunnel struct {
-	meta   TunnelMeta
+	meta TunnelMeta
+
+	// mu 保护 client。控制台协程（snapshotTunnels / stopTunnel）
+	// 与创建协程会并发访问该字段。
+	mu     sync.Mutex
 	client *tcp.HpClient
+}
+
+// setClient 绑定隧道客户端。必须在写入 ConnGroup 之前调用。
+func (t *tunnel) setClient(client *tcp.HpClient) {
+	t.mu.Lock()
+	t.client = client
+	t.mu.Unlock()
+}
+
+// getClient 返回隧道客户端，可能为 nil。
+func (t *tunnel) getClient() *tcp.HpClient {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.client
 }
 
 // ExportedTunnel 是配置导出的单条记录。
@@ -248,6 +283,30 @@ func generateToken() (string, error) {
 	return hex.EncodeToString(buf), nil
 }
 
+// generateConsoleToken 生成不可预测的控制台令牌。
+// 【安全修复】原实现在 crypto/rand 失败时退化成 strconv.FormatInt(time.Now().UnixNano(), 36)，
+// 这是可以暴力猜解的可预测令牌，等于没有鉴权。现在只重试 crypto/rand，
+// 仍然失败则返回错误，由调用方拒绝启动控制台（fail-closed）。
+func generateConsoleToken() (string, error) {
+	var lastErr error
+	for i := 0; i < 3; i++ {
+		token, err := generateToken()
+		if err == nil {
+			return token, nil
+		}
+		lastErr = err
+	}
+	return "", fmt.Errorf("生成控制台令牌失败（crypto/rand 不可用）: %w", lastErr)
+}
+
+// maskToken 只保留令牌前缀，用于日志（绝不把完整令牌写进日志文件）。
+func maskToken(token string) string {
+	if len(token) <= 4 {
+		return "****"
+	}
+	return token[:4] + "****"
+}
+
 func constantTimeEqual(a, b string) bool {
 	if a == "" || b == "" || len(a) != len(b) {
 		return false
@@ -275,7 +334,11 @@ func isAuthorized(c *gin.Context) bool {
 
 // isSameSite 判断请求是否来自同源页面或非浏览器客户端。
 // 浏览器会为所有请求附带 Sec-Fetch-Site，跨站请求无法伪造该头部。
+// 注意：Origin 与 Host 都可能被攻击者控制，因此还必须做 Host 白名单校验。
 func isSameSite(c *gin.Context) bool {
+	if !hostAllowed(c) {
+		return false
+	}
 	switch strings.ToLower(c.GetHeader("Sec-Fetch-Site")) {
 	case "", "same-origin", "none":
 	default:
@@ -290,6 +353,76 @@ func isSameSite(c *gin.Context) bool {
 		return false
 	}
 	return strings.EqualFold(u.Host, c.Request.Host)
+}
+
+// normalizeHost 把 Host / Host:Port / [IPv6]:Port 统一成小写、去端口、去方括号的主机名。
+func normalizeHost(raw string) string {
+	host := strings.TrimSpace(raw)
+	if host == "" {
+		return ""
+	}
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	return strings.ToLower(strings.Trim(strings.TrimSpace(host), "[]"))
+}
+
+// configuredAllowedHosts 返回除回环地址外仍允许访问控制台的主机名：
+//  1. WEB_HOST 指定的真实绑定主机名（0.0.0.0 / :: 表示监听全部网卡，本身不是主机名）；
+//  2. WEB_ALLOWED_HOSTS 中以逗号分隔的额外主机（例如通过反向代理域名访问时）。
+//
+// 端口一律不参与比较（请求侧已经去掉了端口）。
+func configuredAllowedHosts() []string {
+	hosts := make([]string, 0, 4)
+	if h := normalizeHost(os.Getenv("WEB_HOST")); h != "" && h != "0.0.0.0" && h != "::" {
+		hosts = append(hosts, h)
+	}
+	for _, item := range strings.Split(os.Getenv("WEB_ALLOWED_HOSTS"), ",") {
+		if h := normalizeHost(item); h != "" {
+			hosts = append(hosts, h)
+		}
+	}
+	return hosts
+}
+
+// hostAllowed 校验请求的 Host 是否属于受信任的访问地址。
+//
+// 【安全修复·DNS 重绑定】isSameSite 过去只比较 Origin 与 c.Request.Host，
+// 而这两个值都由请求方控制：攻击者在自己的域名（http://evil.tld:10240）上放一个页面，
+// 把该域名解析到 127.0.0.1，浏览器发出的请求就是 Host=evil.tld、Origin=http://evil.tld，
+// 两者一致，于是“同源 + 回环地址”两道检查同时被骗过，控制台令牌就被交给了攻击者。
+// 因此必须用服务端自己的白名单校验 Host：Host 由浏览器按地址栏填写，
+// 重绑定域名不会出现在白名单里，攻击就无法成立。
+// 没有 Origin 的非浏览器客户端同样要过这一关（这正是本检查的意义）。
+func hostAllowed(c *gin.Context) bool {
+	return hostInAllowlist(c.Request.Host)
+}
+
+// hostInAllowlist 判断主机名（可带端口）是否在白名单内。
+func hostInAllowlist(rawHost string) bool {
+	host := normalizeHost(rawHost)
+	if host == "" {
+		return false
+	}
+	// 本机名称与 IPv6 回环
+	if host == "localhost" || host == "::1" {
+		return true
+	}
+	// 所有回环地址：net.IP.IsLoopback 覆盖 ::1 与整个 127.0.0.0/8（即任意 127.x.x.x）
+	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+		return true
+	}
+	for _, allowed := range configuredAllowedHosts() {
+		if host == allowed {
+			return true
+		}
+	}
+	return false
+}
+
+// hostAllowlistHint 返回给运维看的提示：Host 不在白名单时如何放行。
+func hostAllowlistHint() string {
+	return "若确实需要通过其它主机名访问，请用 WEB_ALLOWED_HOSTS=主机名1,主机名2（或 -webHost 指定真实绑定主机名）配置白名单。"
 }
 
 func clientIsLoopback(c *gin.Context) bool {
@@ -309,8 +442,25 @@ func setSessionCookie(c *gin.Context) {
 	})
 }
 
-// establishSession 尝试建立控制台会话：同源 + （持有令牌 或 本机访问）。
+// clearSessionCookie 删除控制台会话 Cookie。
+// 注意 http.Cookie 的 MaxAge：负数才会输出 Max-Age=0（立即过期），0 表示“不写该属性”。
+func clearSessionCookie(c *gin.Context) {
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     sessionCookieName,
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+		Secure:   c.Request.TLS != nil,
+	})
+}
+
+// establishSession 尝试建立控制台会话：Host 白名单 + 同源 + （持有令牌 或 本机访问）。
 func establishSession(c *gin.Context) bool {
+	if !hostAllowed(c) {
+		return false
+	}
 	if !isSameSite(c) {
 		return false
 	}
@@ -332,9 +482,24 @@ func abortJSON(c *gin.Context, status int, msg string) {
 // requireSession 保护所有控制类接口。
 func requireSession() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Host 白名单是第一道闸门：DNS 重绑定的请求在这里就被拦下。
+		if !hostAllowed(c) {
+			log.Warnf("拒绝 Host 不在白名单内的请求: host=%s ip=%s %s", c.Request.Host, c.ClientIP(), hostAllowlistHint())
+			abortJSON(c, http.StatusForbidden, "访问地址不在允许列表内")
+			return
+		}
 		if !isSameSite(c) {
 			abortJSON(c, http.StatusForbidden, "跨站请求已被拒绝")
 			return
+		}
+		// 令牌校验失败限流：只对“携带了错误令牌”的请求计数，
+		// 正确令牌与本机免令牌访问都不会被拦（避免把正常用户锁在门外）。
+		if !isAuthorized(c) && requestToken(c) != "" {
+			authFailLimiter.fail(c.ClientIP())
+			if authFailLimiter.exceeded(c.ClientIP()) {
+				abortJSON(c, http.StatusTooManyRequests, "认证失败次数过多，请稍后再试")
+				return
+			}
 		}
 		if !isAuthorized(c) {
 			abortJSON(c, http.StatusUnauthorized, "未授权：请通过控制台地址访问，或携带访问令牌")
@@ -345,6 +510,10 @@ func requireSession() gin.HandlerFunc {
 }
 
 func webSocketOriginAllowed(r *http.Request) bool {
+	// WebSocket 同样要过 Host 白名单，否则恶意页面可以借 DNS 重绑定订阅实时日志。
+	if !hostInAllowlist(r.Host) {
+		return false
+	}
 	origin := r.Header.Get("Origin")
 	if origin == "" {
 		// 非浏览器客户端（脚本、命令行）没有 Origin。
@@ -372,18 +541,46 @@ func newRateLimiter(limit int, window time.Duration) *rateLimiter {
 	return &rateLimiter{limit: limit, window: window, hits: make(map[string][]time.Time)}
 }
 
+// pruneLocked 在 map 超过上限时先清理过期键，再淘汰最旧的键，保证内存有界。
+// 【安全修复】原实现只在 len > 1024 时清理“已过期”的键：攻击者只要在窗口内
+// 用海量不同 IP 打过来，就没有任何键会过期，map 会无上限增长直到 OOM。
+// 淘汰目标是“给即将写入的新键留出位置”，因此这里收窄到 maxRateLimiterKeys 以下。
+// 必须在持有 r.mu 时调用。
+func (r *rateLimiter) pruneLocked(now time.Time) {
+	if len(r.hits) < maxRateLimiterKeys {
+		return
+	}
+	for k, v := range r.hits {
+		if len(v) == 0 || now.Sub(v[len(v)-1]) > r.window {
+			delete(r.hits, k)
+		}
+	}
+	for len(r.hits) >= maxRateLimiterKeys {
+		oldestKey := ""
+		var oldest time.Time
+		for k, v := range r.hits {
+			if len(v) == 0 {
+				oldestKey = k
+				break
+			}
+			if last := v[len(v)-1]; oldestKey == "" || last.Before(oldest) {
+				oldest = last
+				oldestKey = k
+			}
+		}
+		if oldestKey == "" {
+			break
+		}
+		delete(r.hits, oldestKey)
+	}
+}
+
 func (r *rateLimiter) allow(key string) bool {
 	now := time.Now()
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if len(r.hits) > 1024 {
-		for k, v := range r.hits {
-			if len(v) == 0 || now.Sub(v[len(v)-1]) > r.window {
-				delete(r.hits, k)
-			}
-		}
-	}
+	r.pruneLocked(now)
 
 	kept := r.hits[key][:0]
 	for _, t := range r.hits[key] {
@@ -399,10 +596,45 @@ func (r *rateLimiter) allow(key string) bool {
 	return true
 }
 
+// exceeded 只读检查：key 在窗口内已记录的次数是否达到上限（不消耗配额）。
+func (r *rateLimiter) exceeded(key string) bool {
+	now := time.Now()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	count := 0
+	for _, t := range r.hits[key] {
+		if now.Sub(t) <= r.window {
+			count++
+		}
+	}
+	return count >= r.limit
+}
+
+// fail 记录一次失败（认证失败计数专用）。
+func (r *rateLimiter) fail(key string) {
+	now := time.Now()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.pruneLocked(now)
+	r.hits[key] = append(r.hits[key], now)
+}
+
+// limiterKey 按“客户端 IP + 路由”生成限流键。
+// 【安全修复】原实现只按 IP 限流，/server/proxy 的调用会把
+// /console/config/import 等其它接口的额度一起吃光（互相挤兑）。
+func limiterKey(c *gin.Context) string {
+	return c.ClientIP() + "|" + c.FullPath()
+}
+
 // ---------------------------------------------------------------------------
 // 隧道管理
 // ---------------------------------------------------------------------------
 
+// wsSend 把一条日志推送给所有控制台连接。
+// 【安全修复】原实现直接在隧道的数据协程里同步遍历所有客户端写 socket
+// （每个客户端还有 10 秒写超时），客户端数量无上限，任何一个慢客户端
+// 都能把隧道协程卡住，进而拖死整条隧道。现在改为“有界队列 + 非阻塞投递”：
+// 队列满就丢弃该条日志，绝不等待。
 func wsSend(msg Log) {
 	if msg.Time == "" {
 		msg.Time = time.Now().Format("15:04:05")
@@ -415,10 +647,7 @@ func wsSend(msg Log) {
 		if !ok || client == nil {
 			return true
 		}
-		if err := client.writeJSON(msg); err != nil {
-			ConnWsGroup.Delete(key)
-			_ = client.Close()
-		}
+		client.enqueue(msg)
 		return true
 	})
 }
@@ -456,28 +685,50 @@ func messageTypeName(messageType HpMessage.HpMessage_MessageType) string {
 }
 
 // createTunnel 在并发安全的前提下创建并注册一条隧道。
-func createTunnel(meta TunnelMeta, messageType HpMessage.HpMessage_MessageType) (*tunnel, error) {
+func createTunnel(meta TunnelMeta, messageType HpMessage.HpMessage_MessageType) (t *tunnel, err error) {
 	if meta.Domain == "" {
 		return nil, errors.New("域名不能为空")
 	}
 
+	// SSL 配置必须在写入 ConnGroup 之前解析完毕。
+	// 【安全修复】原实现 `tlsConfig, _ = sslCfg.NewTLSConfig()` 吞掉了错误：
+	// 一旦配置失败，tlsConfig 为 nil，代码会掉进明文分支把账号密码明文发出去，
+	// 而日志还写着已启用 SSL。这里直接中止创建，绝不降级为明文。
+	var tlsConfig *tls.Config
+	if sslCfg := tcp.GetSSLConfig(); sslCfg != nil && sslCfg.Enable {
+		cfg, err := sslCfg.NewTLSConfig()
+		if err != nil {
+			log.Errorf("SSL 配置初始化失败，已中止隧道创建（拒绝明文降级）: %v", err)
+			return nil, fmt.Errorf("SSL 配置初始化失败，已中止创建以防止明文降级: %w", err)
+		}
+		if cfg == nil {
+			log.Errorf("SSL 配置初始化未返回有效配置，已中止隧道创建（拒绝明文降级）")
+			return nil, errors.New("SSL 配置初始化失败：未返回有效的 TLS 配置")
+		}
+		tlsConfig = cfg
+	}
+
+	// 兜底：任何失败路径都不能把半成品留在 ConnGroup 里，
+	// 否则前端会看到一条既不在运行、又“停止不了”的僵尸隧道。
+	defer func() {
+		if err != nil && t != nil {
+			if cur, ok := ConnGroup.Load(meta.Domain); ok && cur == t {
+				ConnGroup.Delete(meta.Domain)
+			}
+			if client := t.getClient(); client != nil {
+				client.Kill()
+			}
+		}
+	}()
+
 	tunnelMu.Lock()
 	if _, exists := ConnGroup.Load(meta.Domain); exists {
 		tunnelMu.Unlock()
-		return nil, fmt.Errorf("域名 %s 已经被使用", meta.Domain)
+		return nil, errors.New("域名 " + meta.Domain + " 已经被使用")
 	}
 	if countTunnels() >= maxTunnels {
 		tunnelMu.Unlock()
 		return nil, fmt.Errorf("隧道数量已达上限 %d，请先停止部分隧道", maxTunnels)
-	}
-	t := &tunnel{meta: meta}
-	ConnGroup.Store(meta.Domain, t)
-	tunnelMu.Unlock()
-
-	// 获取SSL配置
-	var tlsConfig *tls.Config
-	if sslCfg := tcp.GetSSLConfig(); sslCfg != nil && sslCfg.Enable {
-		tlsConfig, _ = sslCfg.NewTLSConfig()
 	}
 
 	domain := meta.Domain
@@ -485,7 +736,13 @@ func createTunnel(meta TunnelMeta, messageType HpMessage.HpMessage_MessageType) 
 		log.Infof("[%s] %s", domain, message)
 		wsSend(Log{Domain: domain, Msg: message, Level: "info"})
 	})
-	t.client = hpClient
+	// 【安全修复】client 必须在 Store 之前绑定：
+	// 原实现先 Store 再赋值 t.client，stopTunnel 若恰好落在两者之间，
+	// 会读到 nil 并报告“已停止”，而真正的客户端随后继续运行、继续重连，再也停不掉。
+	t = &tunnel{meta: meta}
+	t.setClient(hpClient)
+	ConnGroup.Store(meta.Domain, t)
+	tunnelMu.Unlock()
 
 	connect := func() {
 		if tlsConfig != nil {
@@ -525,8 +782,15 @@ func stopTunnel(domain string) bool {
 	if !ok {
 		return false
 	}
-	if t, ok := load.(*tunnel); ok && t != nil && t.client != nil {
-		t.client.Kill()
+	t, ok := load.(*tunnel)
+	if !ok || t == nil {
+		ConnGroup.Delete(domain)
+		return false
+	}
+	// 先在锁内重新读取 client 再 Kill：client 在写入 ConnGroup 之前就已绑定，
+	// 因此这里不可能出现“报告已停止、客户端却还在重连”的窗口。
+	if client := t.getClient(); client != nil {
+		client.Kill()
 	}
 	ConnGroup.Delete(domain)
 	return true
@@ -537,14 +801,18 @@ func snapshotTunnels() []ServerInfo {
 	now := time.Now()
 	ConnGroup.Range(func(key, value interface{}) bool {
 		t, ok := value.(*tunnel)
-		if !ok || t == nil || t.client == nil {
+		if !ok || t == nil {
 			return true
 		}
-		stats := t.client.Stats()
+		client := t.getClient()
+		if client == nil {
+			return true
+		}
+		stats := client.Stats()
 		ret = append(ret, ServerInfo{
 			Domain:      t.meta.Domain,
-			Server:      t.client.GetServer(),
-			ProxyServer: t.client.GetProxyServer(),
+			Server:      client.GetServer(),
+			ProxyServer: client.GetProxyServer(),
 			Status:      stats.Active,
 			Type:        t.meta.Type,
 			Target:      net.JoinHostPort(t.meta.TargetHost, strconv.Itoa(t.meta.TargetPort)),
@@ -631,7 +899,7 @@ func parseDomainList(raw string) []string {
 // ---------------------------------------------------------------------------
 
 func handleAddProxy(c *gin.Context) {
-	if !addLimiter.allow(c.ClientIP()) {
+	if !addLimiter.allow(limiterKey(c)) {
 		c.JSON(http.StatusOK, Res{Code: -1, Msg: "操作过于频繁，请稍后再试"})
 		return
 	}
@@ -882,7 +1150,7 @@ func handleConfigExport(c *gin.Context) {
 }
 
 func handleConfigImport(c *gin.Context) {
-	if !addLimiter.allow(c.ClientIP()) {
+	if !addLimiter.allow(limiterKey(c)) {
 		c.JSON(http.StatusOK, Res{Code: -1, Msg: "操作过于频繁，请稍后再试"})
 		return
 	}
@@ -928,14 +1196,10 @@ func handleConfigImport(c *gin.Context) {
 		return
 	}
 
-	fallbackUser := strings.TrimSpace(c.PostForm("username"))
-	fallbackPass := c.PostForm("password")
-	if fallbackUser == "" {
-		fallbackUser = strings.TrimSpace(formValues.Get("username"))
-	}
-	if fallbackPass == "" {
-		fallbackPass = formValues.Get("password")
-	}
+	// 请求体在函数开头已被完整读入，c.PostForm 无法再解析（Body 已消费），
+	// 这里只能使用前面解析出的表单值。
+	fallbackUser := strings.TrimSpace(formValues.Get("username"))
+	fallbackPass := formValues.Get("password")
 
 	created, skipped := 0, 0
 	failures := make([]string, 0)
@@ -1226,39 +1490,68 @@ func handleStatic(c *gin.Context) {
 
 type wsClient struct {
 	conn *websocket.Conn
-	mu   sync.Mutex
+
+	// send 是有界出站队列，只由写协程消费。
+	// 队列满时 wsSend 直接丢弃消息，从而保证推送绝不会阻塞隧道协程。
+	send chan Log
+	// done 在客户端关闭时被关闭（closeOnce 保证只关一次）。
+	// 关闭后写协程退出、enqueue 不再投递；send 本身永不关闭，
+	// 避免出现 “send on closed channel” 的 panic。
+	done      chan struct{}
+	closeOnce sync.Once
 }
 
-func (w *wsClient) writeJSON(v interface{}) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	_ = w.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	return w.conn.WriteJSON(v)
+func newWSClient(conn *websocket.Conn) *wsClient {
+	return &wsClient{
+		conn: conn,
+		send: make(chan Log, wsOutboundQueue),
+		done: make(chan struct{}),
+	}
 }
 
-func (w *wsClient) writeControl(messageType int, data []byte) error {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	return w.conn.WriteControl(messageType, data, time.Now().Add(5*time.Second))
+// stop 通知写协程退出，只会生效一次。
+func (w *wsClient) stop() {
+	w.closeOnce.Do(func() { close(w.done) })
 }
 
-func (w *wsClient) Close() error {
-	return w.conn.Close()
+// enqueue 非阻塞投递：队列满或已关闭时直接丢弃日志。
+func (w *wsClient) enqueue(msg Log) {
+	select {
+	case <-w.done:
+		return
+	default:
+	}
+	select {
+	case w.send <- msg:
+	default:
+		// 前端消费不过来：丢日志，绝不阻塞调用方（隧道数据协程）。
+	}
 }
 
+// handleWebSocket 建立日志推送连接。
+// 单个客户端只允许一个写协程（websocket 不允许并发写），
+// 读循环与写协程通过 done 通道互相退出，避免 goroutine / fd 泄漏。
 func handleWebSocket(c *gin.Context) {
+	if countWS() >= maxWSClients {
+		log.Warnf("WebSocket 连接数已达上限 %d，拒绝新连接: ip=%s", maxWSClients, c.ClientIP())
+		abortJSON(c, http.StatusServiceUnavailable, "日志连接数已达上限，请稍后再试")
+		return
+	}
 	conn, err := upGrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		log.Errorf("WebSocket升级失败: %v", err)
 		return
 	}
-	client := &wsClient{conn: conn}
+	client := newWSClient(conn)
 	ConnWsGroup.Store(client, nil)
 	log.Infof("新的WebSocket连接建立，当前连接数=%d", countWS())
 
+	var writerWG sync.WaitGroup
 	defer func() {
 		ConnWsGroup.Delete(client)
+		client.stop()
 		_ = conn.Close()
+		writerWG.Wait()
 		log.Infof("WebSocket连接关闭，当前连接数=%d", countWS())
 	}()
 
@@ -1268,22 +1561,29 @@ func handleWebSocket(c *gin.Context) {
 		return conn.SetReadDeadline(time.Now().Add(70 * time.Second))
 	})
 
-	done := make(chan struct{})
+	// 唯一的写协程：同时负责出站日志队列与 ping 保活。
+	writerWG.Add(1)
 	go func() {
+		defer writerWG.Done()
+		defer func() { _ = conn.Close() }()
 		ticker := time.NewTicker(25 * time.Second)
 		defer ticker.Stop()
 		for {
 			select {
-			case <-ticker.C:
-				if err := client.writeControl(websocket.PingMessage, nil); err != nil {
+			case <-client.done:
+				return
+			case msg := <-client.send:
+				_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+				if err := conn.WriteJSON(msg); err != nil {
 					return
 				}
-			case <-done:
-				return
+			case <-ticker.C:
+				if err := conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(5*time.Second)); err != nil {
+					return
+				}
 			}
 		}
 	}()
-	defer close(done)
 
 	for {
 		mt, message, err := conn.ReadMessage()
@@ -1299,9 +1599,7 @@ func handleWebSocket(c *gin.Context) {
 		}
 		// 只回显心跳，不转发任意内容，避免被用作回显放大。
 		if string(message) == "ping" {
-			if err := client.writeJSON(Log{Domain: "system", Msg: "pong", Level: "debug"}); err != nil {
-				return
-			}
+			client.enqueue(Log{Domain: "system", Msg: "pong", Level: "debug"})
 		}
 	}
 }
@@ -1320,7 +1618,9 @@ func countWS() int {
 // ---------------------------------------------------------------------------
 
 func securityHeaders() gin.HandlerFunc {
-	const csp = "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; " +
+	// img-src 额外允许 blob: —— 二维码改成用 fetch 带令牌取回后以 blob: 对象 URL 渲染，
+	// 这样控制台令牌不会再出现在 <img src> 的 URL（会被历史记录/日志记录）里。
+	const csp = "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; " +
 		"script-src 'self'; connect-src 'self' ws: wss:; font-src 'self' data:; " +
 		"object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
 	return func(c *gin.Context) {
@@ -1368,16 +1668,27 @@ func StartWeb(webPort int, coreVersion string, logger logger.Logger) {
 
 	// 生成控制台访问令牌。WEB_TOKEN 允许用户自行指定，用于远程访问。
 	if envToken := strings.TrimSpace(os.Getenv("WEB_TOKEN")); envToken != "" {
-		if len(envToken) < 16 {
-			log.Warnf("WEB_TOKEN 长度不足 16 位，安全性较弱，建议使用更长的随机字符串")
+		if len(envToken) < minWebTokenLength {
+			// 【安全修复】过短的令牌可以被在线爆破，等于没有鉴权。
+			// 这里直接拒绝使用它，改为随机生成，同时保持 tokenEnforced=true（仍然强制鉴权）。
+			log.Errorf("WEB_TOKEN 长度不足 %d 位（当前 %d 位），已拒绝使用该弱令牌并改为随机生成；请设置更长的随机令牌",
+				minWebTokenLength, len(envToken))
+			token, err := generateConsoleToken()
+			if err != nil {
+				log.Errorf("生成控制台令牌失败，出于安全考虑拒绝启动控制台: %v", err)
+				return
+			}
+			consoleToken = token
+			tokenEnforced = true
+		} else {
+			consoleToken = envToken
+			tokenEnforced = true
 		}
-		consoleToken = envToken
-		tokenEnforced = true
 	} else {
-		token, err := generateToken()
+		token, err := generateConsoleToken()
 		if err != nil {
-			log.Errorf("生成控制台令牌失败: %v", err)
-			token = strconv.FormatInt(time.Now().UnixNano(), 36)
+			log.Errorf("生成控制台令牌失败，出于安全考虑拒绝启动控制台: %v", err)
+			return
 		}
 		consoleToken = token
 	}
@@ -1401,7 +1712,14 @@ func StartWeb(webPort int, coreVersion string, logger logger.Logger) {
 
 	log.Infof("启动Web服务，地址=%s:%d，核心版本=%s", bindHost, webPort, coreVersion)
 	if tokenEnforced {
-		log.Infof("控制台访问令牌: %s", consoleToken)
+		// 【安全修复】绝不把令牌原文写进日志：日志会落盘、被打包上传或分享。
+		// 只输出掩码前缀，并说明去哪里取完整令牌。
+		log.Infof("控制台访问令牌已启用（令牌前缀 %s，完整令牌见 WEB_TOKEN 环境变量 / -webToken 参数）", maskToken(consoleToken))
+	}
+	if bindHost == "0.0.0.0" || bindHost == "::" {
+		// 监听全部网卡时，请求的 Host 会是局域网 IP 或自定义域名，
+		// 必须显式配置白名单，否则会被 Host 校验拒绝（防止 DNS 重绑定）。
+		log.Warnf("控制台监听全部网卡，请用 WEB_ALLOWED_HOSTS=主机名1,主机名2 显式声明允许访问的主机名（默认只允许回环地址），%s", hostAllowlistHint())
 	}
 	log.Infof("控制台地址: http://%s:%d/", func() string {
 		if bindHost == "0.0.0.0" || bindHost == "::" {
@@ -1437,11 +1755,24 @@ func StartWeb(webPort int, coreVersion string, logger logger.Logger) {
 		c.Data(http.StatusOK, "application/javascript; charset=utf-8", []byte("var apiAddress = \"/hp\";"))
 	})
 
-	// 会话建立：同源 + 本机访问，或携带正确令牌。
+	// 会话建立：Host 白名单 + 同源 + （本机访问 或 携带正确令牌）。
 	e.GET("/console/session", func(c *gin.Context) {
+		if !hostAllowed(c) {
+			log.Warnf("拒绝 Host 不在白名单内的会话请求: host=%s ip=%s %s", c.Request.Host, c.ClientIP(), hostAllowlistHint())
+			abortJSON(c, http.StatusForbidden, "访问地址不在允许列表内")
+			return
+		}
 		if !isSameSite(c) {
 			abortJSON(c, http.StatusForbidden, "跨站请求已被拒绝")
 			return
+		}
+		// 令牌校验失败限流：只对“携带了错误令牌”的请求计数，避免把正常用户锁在门外。
+		if !isAuthorized(c) && requestToken(c) != "" {
+			authFailLimiter.fail(c.ClientIP())
+			if authFailLimiter.exceeded(c.ClientIP()) {
+				abortJSON(c, http.StatusTooManyRequests, "认证失败次数过多，请稍后再试")
+				return
+			}
 		}
 		if establishSession(c) {
 			c.JSON(http.StatusOK, gin.H{
@@ -1456,6 +1787,12 @@ func StartWeb(webPort int, coreVersion string, logger logger.Logger) {
 			return
 		}
 		c.JSON(http.StatusUnauthorized, Res{Code: -1, Msg: "需要访问令牌"})
+	})
+
+	// 退出控制台会话：清除 HttpOnly 会话 Cookie（属性与 setSessionCookie 保持一致）。
+	e.POST("/console/logout", requireSession(), func(c *gin.Context) {
+		clearSessionCookie(c)
+		c.JSON(http.StatusOK, Res{Code: 200, Msg: "已退出控制台会话"})
 	})
 
 	// 需要鉴权的接口
@@ -1485,9 +1822,22 @@ func StartWeb(webPort int, coreVersion string, logger logger.Logger) {
 	}
 
 	e.GET("/", func(c *gin.Context) {
+		if !hostAllowed(c) {
+			log.Warnf("拒绝 Host 不在白名单内的访问: host=%s ip=%s %s", c.Request.Host, c.ClientIP(), hostAllowlistHint())
+			gatePage(c, "当前访问地址不在允许列表内。"+hostAllowlistHint())
+			return
+		}
 		if !isSameSite(c) {
 			abortJSON(c, http.StatusForbidden, "跨站请求已被拒绝")
 			return
+		}
+		// 令牌校验失败限流：只对“携带了错误令牌”的请求计数，避免把正常用户锁在门外。
+		if !isAuthorized(c) && requestToken(c) != "" {
+			authFailLimiter.fail(c.ClientIP())
+			if authFailLimiter.exceeded(c.ClientIP()) {
+				gatePage(c, "认证失败次数过多，请稍后再试。")
+				return
+			}
 		}
 		if !establishSession(c) {
 			gatePage(c, "当前请求来自非本机地址，且没有携带有效的访问令牌。")

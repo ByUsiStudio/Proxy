@@ -27,3 +27,10 @@ proxy.zip
 .gomodcache/
 .gotmp/
 .m2repo/
+# 二维码回归测试的生成物（见 tools/README.md，运行后本地重建）
+tools/qr-verify/qrverify
+tools/qr-verify/qrverify.exe
+tools/qr-verify/texts.txt
+tools/qr-verify/ref.txt
+# 上面的 go.sum 全局忽略不适用于验证工具：它需要 go.sum 才能离线构建
+!tools/qr-verify/go.sum

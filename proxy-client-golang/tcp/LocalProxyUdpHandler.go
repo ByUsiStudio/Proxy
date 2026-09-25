@@ -1,8 +1,8 @@
 package tcp
 
 import (
-	"proxy-client-golang/hpMessage"
 	"net"
+	"proxy-client-golang/hpMessage"
 )
 
 type LocalProxyUdpHandler struct {

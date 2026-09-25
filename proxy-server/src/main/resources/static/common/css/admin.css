@@ -2435,3 +2435,243 @@ textarea.mdui-textfield-input {
     display: inline-flex !important;
   }
 }
+
+/* ==========================================================================
+   19. 本轮新增组件：筛选栏 / 图表卡片 / 条形占比 / 二维码分享 / 批量操作
+   ========================================================================== */
+
+/* 筛选栏：与工具栏同排，窄屏自动换行 */
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+.filter-bar .input,
+.filter-bar .select {
+  width: auto;
+  min-width: 8rem;
+  flex: 0 1 auto;
+}
+
+.filter-bar__divider {
+  width: 1px;
+  height: 1.5rem;
+  background: var(--border);
+  margin: 0 var(--s-1);
+}
+
+/* 自动刷新倒计时文案 */
+.refresh-hint {
+  color: var(--text-faint);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* 图表容器：固定宽高比，避免 Canvas 撑破卡片；随主题自动重绘由 JS 负责 */
+.chart-box {
+  position: relative;
+  width: 100%;
+  height: clamp(14rem, 26vw, 20rem);
+}
+
+.chart-box canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.chart-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 26rem), 1fr));
+  gap: var(--s-4);
+}
+
+/* 统计卡片（KPI 的紧凑变体） */
+.stat-card {
+  padding: var(--s-4);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-xs);
+}
+
+.stat-card__label {
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.stat-card__value {
+  margin-top: var(--s-1);
+  color: var(--text);
+  font-size: var(--fs-2xl, 1.6rem);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 条形占比列表（按端口/按天的流量分布） */
+.bar-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+}
+
+.bar-row {
+  display: grid;
+  grid-template-columns: minmax(4rem, 8rem) 1fr auto;
+  align-items: center;
+  gap: var(--s-3);
+  font-size: var(--fs-sm);
+}
+
+.bar-row__label {
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+
+.bar-row__track {
+  display: block;
+  height: 0.6rem;
+  border-radius: var(--r-full);
+  background: var(--bg-sunken);
+  overflow: hidden;
+}
+
+.bar-row__fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--r-full);
+  background: linear-gradient(90deg, var(--brand-500), var(--brand-400, var(--brand-500)));
+  transition: width var(--dur, 0.2s) var(--ease, ease);
+}
+
+.bar-row__value {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* 二维码分享 */
+.qr-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s-3);
+  padding: var(--s-4);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg-sunken);
+}
+
+.qr-box canvas {
+  /* 二维码必须保持硬边，任何插值都会影响识别 */
+  image-rendering: pixelated;
+  border-radius: var(--r-sm);
+  background: #fff;
+  padding: var(--s-2);
+  box-shadow: var(--shadow-xs);
+  max-width: 100%;
+  height: auto;
+}
+
+.qr-meta {
+  color: var(--text-faint);
+  font-size: var(--fs-xs);
+  text-align: center;
+  word-break: break-all;
+}
+
+/* 代码/JSON 预览块 */
+.code-block {
+  width: 100%;
+  min-height: 9rem;
+  max-height: 22rem;
+  padding: var(--s-3);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-sunken);
+  color: var(--text);
+  font-family: var(--font-mono, ui-monospace, Consolas, monospace);
+  font-size: var(--fs-xs);
+  line-height: 1.6;
+  resize: vertical;
+  white-space: pre;
+  overflow: auto;
+  tab-size: 2;
+}
+
+.code-block:focus {
+  border-color: var(--brand-500);
+  box-shadow: var(--ring, 0 0 0 3px rgba(47, 107, 255, 0.25));
+  outline: none;
+}
+
+/* 批量操作提示条 */
+.bulk-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  border: 1px dashed var(--border-strong, var(--border));
+  border-radius: var(--r-md);
+  background: var(--bg-sunken);
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+
+.bulk-bar__count {
+  color: var(--text);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 表格内的复选框列：统一宽度与居中 */
+.table th.col-check,
+.table td.col-check {
+  width: 2.75rem;
+  text-align: center;
+}
+
+.table input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--brand-500);
+  cursor: pointer;
+}
+
+/* 密码等敏感字段：默认打码，点击后临时显示 */
+.secret {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-family: var(--font-mono, ui-monospace, Consolas, monospace);
+}
+
+.secret__value {
+  letter-spacing: 0.08em;
+}
+
+/* 窄屏：条形列表与筛选栏堆叠 */
+@media (max-width: 48rem) {
+  .filter-bar {
+    width: 100%;
+  }
+
+  .filter-bar .input,
+  .filter-bar .select {
+    flex: 1 1 8rem;
+  }
+
+  .bar-row {
+    grid-template-columns: minmax(3.5rem, 6rem) 1fr auto;
+    gap: var(--s-2);
+  }
+}
+

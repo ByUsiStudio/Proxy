@@ -17,7 +17,10 @@ func NewUdpConnection() *UdpConnection {
 func (connection *UdpConnection) Connect(host string, port int, handler Handler, call func(mgs string)) net.Conn {
 	conn, err := net.Dial("udp", host+":"+strconv.Itoa(port))
 	if err != nil {
-		call("不能能连到服务器：" + host + ":" + strconv.Itoa(port) + " 原因：" + err.Error())
+		// 回调可能为 nil，先判空再调用，避免在错误路径上 panic。
+		if call != nil {
+			call("不能能连到服务器：" + host + ":" + strconv.Itoa(port) + " 原因：" + err.Error())
+		}
 		return nil
 	}
 	handler.ChannelActive(conn)
@@ -33,7 +36,10 @@ func (connection *UdpConnection) Connect(host string, port int, handler Handler,
 			}
 			if reader.Buffered() > 0 {
 				data := make([]byte, reader.Buffered())
-				io.ReadFull(reader, data)
+				if _, err := io.ReadFull(reader, data); err != nil {
+					handler.ChannelInactive(conn)
+					return
+				}
 				handler.ChannelRead(conn, data)
 			}
 		}

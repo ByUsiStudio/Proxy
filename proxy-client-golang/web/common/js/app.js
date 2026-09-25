@@ -423,9 +423,17 @@
   PX.ApiError.prototype = Object.create(Error.prototype);
 
   /**
-   * 云端（/hp/*）接口现在要求在调用时携带账号凭据，服务端据此校验归属，
+   * 云端（/hp/*）接口要求在调用时携带账号凭据，服务端据此校验归属，
    * 用来修复“只凭 userId/username 就能读写他人端口、域名、配置”的越权问题。
    * 这里统一注入，页面自身无需关心。
+   *
+   * 【安全修复】凭据一律不进 URL：URL 会被云端、反向代理、中间设备的访问日志完整记录。
+   * 服务端契约（proxy-server/.../controller/open/OpenApiController.java 与 ConfigController.java）：
+   *   - 只有 GET：/statistics/getMyInfo、/server/portList、/server/domainList、/config/list
+   *   - 同时有 GET 和 POST：/config/remove（控制台已改走 POST，见 CLOUD_POST_EQUIVALENT_PATHS）
+   *   - 本来就是 POST：/config/save、/server/portAdd、/server/portRemove、
+   *                   /server/domainAdd、/server/domainRemove、/statistics/add
+   *   - 服务端不支持用请求头传账号密码，因此 POST 走表单体、GET-only 只能走查询参数。
    */
   function isCloudPath(path) {
     return typeof path === 'string' && path.indexOf('/hp/') === 0;
@@ -433,29 +441,62 @@
 
   var NO_CREDENTIAL_PATHS = /^\/hp\/user\/(login|reg|email)/;
 
+  /** 只有 GET 形式、且需要账号密码的云端接口（凭据只能作为查询参数传递）。 */
+  var CLOUD_GET_ONLY_CREDENTIAL_PATHS = {
+    '/hp/statistics/getMyInfo': true,
+    '/hp/server/portList': true,
+    '/hp/server/domainList': true,
+    '/hp/config/list': true
+  };
+
+  /** 服务端同时提供 POST 形式的云端接口：控制台统一改写成 POST，凭据进请求体。 */
+  var CLOUD_POST_EQUIVALENT_PATHS = {
+    '/hp/config/remove': true
+  };
+
+  function pathWithoutQuery(path) {
+    var idx = path.indexOf('?');
+    return idx === -1 ? path : path.slice(0, idx);
+  }
+
   function withCredentials(path, opts) {
     if (!isCloudPath(path) || NO_CREDENTIAL_PATHS.test(path)) return { url: path, opts: opts };
     var cred = PX.user.credentials();
     if (!cred || !cred.password) return { url: path, opts: opts };
 
     if (opts.json !== undefined) {
+      // JSON 请求体：凭据在 body 中，不出现在 URL。
       var merged = Object.assign({}, opts.json);
       if (merged.username === undefined) merged.username = cred.username;
       if (merged.password === undefined) merged.password = cred.password;
       return { url: path, opts: Object.assign({}, opts, { json: merged }) };
     }
     if (opts.form !== undefined) {
+      // 表单请求体：凭据在 body 中，不出现在 URL。
       var form = Object.assign({}, opts.form);
       if (form.username === undefined) form.username = cred.username;
       if (form.password === undefined) form.password = cred.password;
       return { url: path, opts: Object.assign({}, opts, { form: form }) };
     }
-    var sep = path.indexOf('?') === -1 ? '?' : '&';
-    return {
-      url: path + sep + 'username=' + encodeURIComponent(cred.username || '') +
-        '&password=' + encodeURIComponent(cred.password),
-      opts: opts
-    };
+
+    if (String(opts.method || 'GET').toUpperCase() !== 'GET') {
+      // 非 GET 却没有请求体：保持原样，不把凭据塞进 URL。
+      return { url: path, opts: opts };
+    }
+    if (CLOUD_GET_ONLY_CREDENTIAL_PATHS[pathWithoutQuery(path)]) {
+      /* 【残留风险（已评估并接受）】这些云端接口服务端只提供 GET，
+         账号密码只能作为查询参数传递，仍可能出现在云端/反向代理的访问日志里。
+         一旦服务端补齐等价的 POST 形式，请把对应页面改成 PX.api.post，
+         并从 CLOUD_GET_ONLY_CREDENTIAL_PATHS 中移除该路径。 */
+      var sep = path.indexOf('?') === -1 ? '?' : '&';
+      return {
+        url: path + sep + 'username=' + encodeURIComponent(cred.username || '') +
+          '&password=' + encodeURIComponent(cred.password),
+        opts: opts
+      };
+    }
+    // 其它 GET 云端接口：不注入凭据（需要凭据的接口请改用 POST 调用）。
+    return { url: path, opts: opts };
   }
 
   /** 判断云端响应是否因为缺少/错误的凭据而被拒绝。 */
@@ -560,8 +601,15 @@
         return res;
       });
     },
-    /** 期望 JSON 业务响应的 GET，失败时抛出 ApiError。 */
+    /**
+     * 期望 JSON 业务响应的 GET，失败时抛出 ApiError。
+     * 云端接口需要凭据且服务端提供等价 POST 时（见 CLOUD_POST_EQUIVALENT_PATHS），
+     * 这里直接改写成 POST + 表单体，避免账号密码进入 URL / 访问日志。
+     */
     get: function (path, params) {
+      if (isCloudPath(path) && CLOUD_POST_EQUIVALENT_PATHS[pathWithoutQuery(path)]) {
+        return PX.api.send(path, { method: 'POST', form: params || {} }).then(unwrap);
+      }
       var url = path;
       if (params) {
         var qs = new URLSearchParams();
@@ -758,8 +806,21 @@
       return profile;
     },
     logout: function () {
-      PX.user.clear();
-      location.replace('login.html');
+      // 先请求服务端清除 HttpOnly 会话 Cookie（POST /console/logout）。
+      // fire-and-forget：请求失败（离线、401 等）也必须继续清理本地状态并跳转，
+      // 否则用户会卡在页面上无法退出。
+      var finished = false;
+      var finish = function () {
+        if (finished) return;
+        finished = true;
+        PX.user.clear();
+        location.replace('login.html');
+      };
+      try {
+        PX.api.post('/console/logout', {}).then(finish).catch(finish);
+      } catch (e) {
+        finish();
+      }
     }
   };
 

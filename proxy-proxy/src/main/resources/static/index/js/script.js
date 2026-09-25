@@ -3,6 +3,9 @@
    - 主题切换（跟随系统 / 手动）
    - 背景粒子动画（修复旧版 setInterval(…, 0) 死循环与颜色拼接错误）
    - 安装源标签页与代码复制
+   - Toast 轻提示（替代仅改按钮文字的反馈方式）
+   安全约定：动态内容一律通过 createTextNode / textContent 写入 DOM，
+             不使用 innerHTML 处理任何运行时字符串（唯一例外是文件内的常量 SVG 片段）。
    ========================================================================== */
 (function () {
   'use strict';
@@ -11,10 +14,108 @@
   var reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   /* ------------------------------------------------------------------ *
+   * Toast
+   * ------------------------------------------------------------------ */
+  var toastHost = null;
+
+  /** 创建内联 SVG 图标节点（只用文件内的常量路径）。 */
+  function iconNode(paths) {
+    var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('focusable', 'false');
+    svg.setAttribute('width', '16');
+    svg.setAttribute('height', '16');
+    svg.setAttribute('fill', 'none');
+    svg.setAttribute('stroke', 'currentColor');
+    svg.setAttribute('stroke-width', '2');
+    svg.setAttribute('stroke-linecap', 'round');
+    svg.setAttribute('stroke-linejoin', 'round');
+    for (var i = 0; i < paths.length; i++) {
+      var p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      p.setAttribute('d', paths[i]);
+      svg.appendChild(p);
+    }
+    return svg;
+  }
+
+  var TOAST_ICONS = {
+    success: ['M20 6 9 17l-5-5'],
+    error: ['M12 3 2 20h20L12 3z', 'M12 9v5M12 17h.01'],
+    warning: ['M12 3 2 20h20L12 3z', 'M12 9v5M12 17h.01'],
+    info: ['M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0', 'M12 16v-4M12 8h.01']
+  };
+
+  function ensureToastHost() {
+    if (!toastHost || !document.body.contains(toastHost)) {
+      toastHost = document.createElement('div');
+      toastHost.className = 'toast-host';
+      toastHost.setAttribute('aria-live', 'polite');
+      toastHost.setAttribute('aria-atomic', 'false');
+      document.body.appendChild(toastHost);
+    }
+    return toastHost;
+  }
+
+  /**
+   * 显示一条轻提示。
+   * @param {string} message 文本内容（以文本节点插入，不会被解析为 HTML）
+   * @param {object} [options] { type:'info'|'success'|'error'|'warning', timeout:毫秒 }
+   */
+  function toast(message, options) {
+    var opts = options || {};
+    var type = TOAST_ICONS[opts.type] ? opts.type : 'info';
+
+    var node = document.createElement('div');
+    node.className = 'toast toast--' + type;
+    node.setAttribute('role', 'status');
+
+    var icon = document.createElement('span');
+    icon.className = 'toast__icon';
+    icon.appendChild(iconNode(TOAST_ICONS[type]));
+    node.appendChild(icon);
+
+    var body = document.createElement('div');
+    body.className = 'toast__body';
+    var msg = document.createElement('div');
+    msg.className = 'toast__msg';
+    msg.appendChild(document.createTextNode(String(message === null || message === undefined ? '' : message)));
+    body.appendChild(msg);
+    node.appendChild(body);
+
+    var close = document.createElement('button');
+    close.type = 'button';
+    close.className = 'toast__close';
+    close.setAttribute('aria-label', '关闭');
+    close.appendChild(document.createTextNode('×'));
+    node.appendChild(close);
+
+    var timer = null;
+    function remove() {
+      if (timer) { window.clearTimeout(timer); }
+      node.classList.add('toast--out');
+      window.setTimeout(function () {
+        if (node.parentNode) { node.parentNode.removeChild(node); }
+      }, 220);
+    }
+    close.addEventListener('click', remove);
+
+    ensureToastHost().appendChild(node);
+    var timeout = opts.timeout === undefined ? 3200 : opts.timeout;
+    if (timeout > 0) { timer = window.setTimeout(remove, timeout); }
+    return remove;
+  }
+
+  window.pxToast = toast;
+
+  /* ------------------------------------------------------------------ *
    * 主题
    * ------------------------------------------------------------------ */
-  var ICON_SUN = '<path d="M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10"/><path d="M12 1v3M12 20v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M1 12h3M20 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>';
-  var ICON_MOON = '<path d="M21 13A9 9 0 1 1 11 3a7 7 0 0 0 10 10z"/>';
+  var ICON_SUN = [
+    'M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10',
+    'M12 1v3M12 20v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M1 12h3M20 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1'
+  ];
+  var ICON_MOON = ['M21 13A9 9 0 1 1 11 3a7 7 0 0 0 10 10z'];
 
   function readTheme() {
     try {
@@ -28,7 +129,11 @@
     document.documentElement.setAttribute('data-theme', theme);
     document.documentElement.style.colorScheme = theme;
     var icon = document.getElementById('themeIcon');
-    if (icon) icon.innerHTML = theme === 'dark' ? ICON_MOON : ICON_SUN;
+    if (icon) {
+      // 用 DOM API 重建图标，不经过任何 HTML 解析
+      while (icon.firstChild) { icon.removeChild(icon.firstChild); }
+      icon.appendChild(iconNode(theme === 'dark' ? ICON_MOON : ICON_SUN));
+    }
     var button = document.getElementById('themeToggle');
     if (button) button.setAttribute('aria-label', theme === 'dark' ? '切换到浅色主题' : '切换到深色主题');
     if (window.__pxParticles) window.__pxParticles.setTheme(theme);
@@ -42,6 +147,7 @@
       var next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
       try { localStorage.setItem(THEME_KEY, next); } catch (e) { /* 忽略 */ }
       applyTheme(next);
+      toast(next === 'dark' ? '已切换到深色主题' : '已切换到浅色主题', { type: 'info', timeout: 1800 });
     });
   }
 
@@ -225,11 +331,16 @@
           var target = targetSelector ? document.querySelector(targetSelector) : null;
           if (target) text = target.textContent;
         }
-        if (!text) return;
+        if (!text) {
+          toast('这条命令没有可复制的内容', { type: 'warning' });
+          return;
+        }
         copyText(text).then(function () {
           button.textContent = '已复制';
+          toast('命令已复制到剪贴板', { type: 'success', timeout: 2200 });
         }).catch(function () {
           button.textContent = '请手动复制';
+          toast('当前环境不支持自动复制，请手动选择命令文本', { type: 'warning', timeout: 4200 });
         }).then(function () {
           window.setTimeout(function () { button.textContent = '复制'; }, 1800);
         });

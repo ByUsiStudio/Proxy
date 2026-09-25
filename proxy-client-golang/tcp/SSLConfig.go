@@ -4,7 +4,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"sync"
 )
@@ -70,7 +69,8 @@ func (c *SSLConfig) NewTLSConfig() (*tls.Config, error) {
 
 	// 加载CA证书
 	if c.CAFile != "" {
-		caCert, err := ioutil.ReadFile(c.CAFile)
+		// io/ioutil 已废弃，改用 os.ReadFile
+		caCert, err := os.ReadFile(c.CAFile)
 		if err != nil {
 			return nil, fmt.Errorf("加载CA证书失败: %w", err)
 		}

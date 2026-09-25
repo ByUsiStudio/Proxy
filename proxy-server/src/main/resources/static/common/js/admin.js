@@ -192,6 +192,10 @@
       document.documentElement.setAttribute('data-theme', resolved);
       document.documentElement.style.colorScheme = resolved;
       Admin.theme.syncControl();
+      // 通知自绘图表等需要跟随主题重绘的组件
+      try {
+        document.dispatchEvent(new CustomEvent('admin:themechange', { detail: { theme: resolved } }));
+      } catch (e) { /* 老浏览器忽略 */ }
     },
     set: function (mode) {
       Admin.theme.mode = (mode === 'light' || mode === 'dark') ? mode : 'auto';
@@ -451,8 +455,11 @@
     $$('table[data-sortable="true"]', root || document).forEach(function (table) {
       $$('thead th', table).forEach(function (th) {
         if (th.hasAttribute('data-sort-ignore') || th.querySelector('input,select,button')) return;
+        // 幂等：局部刷新后再次调用不应重复绑定（否则一次点击会排序两次）
+        if (th.getAttribute('data-sort-bound') === '1') return;
         var label = String(th.textContent || '').trim();
         if (!label) return;
+        th.setAttribute('data-sort-bound', '1');
         th.classList.add('is-sortable');
         th.setAttribute('role', 'columnheader');
         th.setAttribute('tabindex', '0');
@@ -505,11 +512,7 @@
       var total = parseInt(el.getAttribute('data-pager-total') || '1', 10) || 1;
       var param = el.getAttribute('data-pager-param') || '';
       var inputId = el.getAttribute('data-pager-input') || '';
-      var extra = '';
-      if (param && inputId) {
-        var inputEl = document.getElementById(inputId);
-        if (inputEl) extra = '&' + param + '=' + encodeURIComponent(String(inputEl.value || ''));
-      }
+      var extra = buildPagerExtra(el, param, inputId);
       el.setAttribute('data-pager-ready', '1');
       global.jQuery(el).paging({
         initPageNo: page,
@@ -525,6 +528,67 @@
       cleanPagerInlineStyles(el);
     });
   };
+
+  /**
+   * 组装分页链接需要保留的查询参数。
+   * 支持两种声明方式：
+   *   data-pager-param="username" data-pager-input="username"  —— 单个参数
+   *   data-pager-params="username,port"                        —— 多个参数（逗号分隔，元素 id 与参数名一致）
+   * 参数值统一做 URL 编码，避免把用户输入直接拼进链接。
+   */
+  function buildPagerExtra(el, param, inputId) {
+    var pairs = [];
+    var multi = el.getAttribute('data-pager-params') || '';
+    if (multi) {
+      multi.split(',').forEach(function (name) {
+        var key = name.trim();
+        if (!key) { return; }
+        var node = document.getElementById(key);
+        var value = node ? String(node.value || '') : '';
+        if (value) { pairs.push(key + '=' + encodeURIComponent(value)); }
+      });
+    } else if (param && inputId) {
+      var inputEl = document.getElementById(inputId);
+      if (inputEl) {
+        pairs.push(param + '=' + encodeURIComponent(String(inputEl.value || '')));
+      }
+    }
+    return pairs.length ? '&' + pairs.join('&') : '';
+  }
+
+  /* ------------------------------------------------------------------ *
+   * 7.1 局部刷新：用服务端渲染的新片段替换现有节点
+   *
+   * 安全性说明：这里刻意<b>不使用 innerHTML</b>。
+   * fetch 回来的 HTML 通过 DOMParser 解析成独立文档（不会执行脚本、不会加载图片），
+   * 然后以 DOM 节点替换的方式挂载，任何脚本或事件属性都不会被激活，
+   * 相当于把「服务端渲染的表格」当成结构化数据使用。
+   * ------------------------------------------------------------------ */
+  Admin.refreshRegions = function (url, regions) {
+    return fetch(url, {
+      method: 'GET',
+      credentials: 'same-origin',
+      cache: 'no-store',
+      headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    }).then(function (res) {
+      if (!res.ok) {
+        throw new Error('刷新失败（HTTP ' + res.status + '）');
+      }
+      return res.text();
+    }).then(function (html) {
+      var doc = new DOMParser().parseFromString(html, 'text/html');
+      var replaced = 0;
+      Object.keys(regions || {}).forEach(function (selector) {
+        var incoming = doc.querySelector(selector);
+        var current = document.querySelector(selector);
+        if (!incoming || !current || !current.parentNode) { return; }
+        current.parentNode.replaceChild(document.importNode(incoming, true), current);
+        replaced++;
+      });
+      return replaced;
+    });
+  };
+
 
   /* ------------------------------------------------------------------ *
    * 8. 导航：按 location.pathname 标记当前项
@@ -639,7 +703,679 @@
   }, true);
 
   /* ------------------------------------------------------------------ *
-   * 10. 启动
+   * 10. 格式化
+   * ------------------------------------------------------------------ */
+  Admin.fmtBytes = function (bytes) {
+    var n = Number(bytes) || 0;
+    if (n <= 0) { return '0 B'; }
+    var units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+    var i = Math.min(Math.floor(Math.log(n) / Math.log(1024)), units.length - 1);
+    var v = n / Math.pow(1024, i);
+    return (i === 0 ? v.toFixed(0) : v.toFixed(v >= 100 ? 1 : 2)) + ' ' + units[i];
+  };
+
+  Admin.fmtNum = function (n) {
+    return (Number(n) || 0).toLocaleString('zh-CN');
+  };
+
+  Admin.fmtDuration = function (seconds) {
+    var s = Math.max(0, Math.floor(Number(seconds) || 0));
+    if (s < 60) { return s + ' 秒'; }
+    var m = Math.floor(s / 60);
+    if (m < 60) { return m + ' 分 ' + (s % 60) + ' 秒'; }
+    var h = Math.floor(m / 60);
+    if (h < 24) { return h + ' 时 ' + (m % 60) + ' 分'; }
+    return Math.floor(h / 24) + ' 天 ' + (h % 24) + ' 时';
+  };
+
+  Admin.fmtTime = function (date) {
+    var d = date instanceof Date ? date : new Date(date || Date.now());
+    function p(v) { return (v < 10 ? '0' : '') + v; }
+    return p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+  };
+
+  Admin.timestamp = function () {
+    var d = new Date();
+    function p(v) { return (v < 10 ? '0' : '') + v; }
+    return d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '-' +
+      p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds());
+  };
+
+  /* ------------------------------------------------------------------ *
+   * 11. HTTP 辅助（同源 + 后台会话 Cookie，CSRF 由服务端同源校验兜底）
+   * ------------------------------------------------------------------ */
+  function parseBody(text) {
+    if (!text) { return null; }
+    try { return JSON.parse(text); } catch (e) { return text; }
+  }
+
+  /**
+   * 发起同源请求。
+   * 说明：后台的写操作只允许 POST，且服务端会校验 Origin/Referer 同源，
+   * 因此这里统一使用表单编码 + same-origin 凭据。
+   */
+  Admin.request = function (url, options) {
+    var opts = options || {};
+    var headers = {};
+    var body;
+    if (opts.json !== undefined) {
+      headers['Content-Type'] = 'application/json;charset=UTF-8';
+      body = JSON.stringify(opts.json);
+    } else if (opts.form !== undefined) {
+      headers['Content-Type'] = 'application/x-www-form-urlencoded;charset=UTF-8';
+      var params = new URLSearchParams();
+      Object.keys(opts.form).forEach(function (k) {
+        var v = opts.form[k];
+        if (v !== null && v !== undefined) { params.append(k, v); }
+      });
+      body = params.toString();
+    }
+    var controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    var timer = null;
+    if (controller) {
+      timer = setTimeout(function () { controller.abort(); }, opts.timeout || 30000);
+    }
+    return fetch(url, {
+      method: opts.method || 'GET',
+      headers: headers,
+      body: body,
+      credentials: 'same-origin',
+      cache: 'no-store',
+      signal: controller ? controller.signal : undefined
+    }).then(function (res) {
+      if (timer) { clearTimeout(timer); }
+      return res.text().then(function (text) {
+        return { ok: res.ok, status: res.status, data: parseBody(text) };
+      });
+    }).catch(function (err) {
+      if (timer) { clearTimeout(timer); }
+      if (err && err.name === 'AbortError') {
+        throw new Error('请求超时，请稍后重试');
+      }
+      throw new Error('网络请求失败：' + ((err && err.message) || '未知错误'));
+    });
+  };
+
+  Admin.post = function (url, form) {
+    return Admin.request(url, { method: 'POST', form: form });
+  };
+
+  Admin.get = function (url, params) {
+    var query = '';
+    if (params) {
+      var qs = new URLSearchParams();
+      Object.keys(params).forEach(function (k) {
+        var v = params[k];
+        if (v !== null && v !== undefined && v !== '') { qs.append(k, v); }
+      });
+      var s = qs.toString();
+      if (s) { query = (url.indexOf('?') === -1 ? '?' : '&') + s; }
+    }
+    return Admin.request(url + query, { method: 'GET' });
+  };
+
+  /** 业务响应是否成功（兼容 code/Code 两种写法）。 */
+  Admin.isOk = function (payload) {
+    if (!payload || typeof payload !== 'object') { return false; }
+    var code = payload.code !== undefined ? payload.code : payload.Code;
+    return code === 200 || code === 0;
+  };
+
+  Admin.msgOf = function (payload, fallback) {
+    if (payload && typeof payload === 'object') {
+      return payload.msg || payload.Msg || payload.message || fallback || '';
+    }
+    return fallback || '';
+  };
+
+  /* ------------------------------------------------------------------ *
+   * 12. 表格导出（CSV / JSON）
+   * ------------------------------------------------------------------ */
+  /** 读取表格的可见行（尊重当前过滤结果）。 */
+  function visibleRows(table) {
+    return $$('tbody tr', table).filter(function (row) {
+      return !row.hidden && !row.hasAttribute('data-filter-skip');
+    });
+  }
+
+  /**
+   * 把表格解析为结构化记录。
+   * 列名取自表头文本（自动去掉排序箭头与操作列），因此不会因为增删列而错位。
+   *
+   * @returns {{headers: string[], rows: string[][], records: Object[]}}
+   */
+  Admin.tableRecords = function (target, options) {
+    var opts = options || {};
+    var table = typeof target === 'string' ? document.getElementById(target) : target;
+    if (!table) { return { headers: [], rows: [], records: [] }; }
+
+    var headCells = $$('thead th', table);
+    var skip = opts.skipColumns || [];
+    var headers = opts.headers || headCells.map(function (th) {
+      var clone = th.cloneNode(true);
+      $$('.sort-ind', clone).forEach(function (n) { n.remove(); });
+      return String(clone.textContent || '').trim();
+    });
+    // 表头必须与被剔除后的数据行保持同样的下标，
+    // 否则 headers[i] 与 row[i] 会错位（例如跳过了复选框列却在表头里保留它）。
+    if (skip.length) {
+      headers = headers.filter(function (_, index) { return skip.indexOf(index) === -1; });
+    }
+
+    var rows = visibleRows(table).map(function (row) {
+      var cells = Array.prototype.slice.call(row.children);
+      var values = [];
+      cells.forEach(function (cell, index) {
+        if (skip.indexOf(index) !== -1) { return; }
+        var box = cell.querySelector('input[type="checkbox"]');
+        var text;
+        if (box && cell.querySelectorAll('input,select,textarea,button,a').length === 1) {
+          text = box.checked ? '选中' : '';
+        } else {
+          // 去掉按钮里的操作文字之外的内容后取纯文本
+          text = String(cell.textContent || '');
+        }
+        values.push(text.replace(/\s+/g, ' ').trim());
+      });
+      return values;
+    });
+
+    var records = rows.map(function (values) {
+      var obj = {};
+      values.forEach(function (v, i) { obj[headers[i] || ('col' + i)] = v; });
+      return obj;
+    });
+
+    return { headers: headers, rows: rows, records: records };
+  };
+
+  /**
+   * 把表格导出为 CSV 或 JSON。
+   * 只导出当前可见（过滤后）的行，与页面上看到的内容一致。
+   *
+   * @param {string|Element} target 表格元素或 id
+   * @param {object} [options] { format:'csv'|'json', filename:'...', headers:[...], skipColumns:[...] }
+   */
+  Admin.exportTable = function (target, options) {
+    var opts = options || {};
+    var parsed = Admin.tableRecords(target, opts);
+    if (!parsed.headers.length) {
+      Admin.toastWarn('没有可导出的表格数据');
+      return 0;
+    }
+
+    var filename = opts.filename ||
+      ((document.title.replace(/[\\/:*?"<>|]/g, '').trim() || 'export') + '-' + Admin.timestamp());
+
+    if (opts.format === 'json') {
+      Admin.download(filename + '.json', JSON.stringify(parsed.records, null, 2), 'application/json;charset=utf-8');
+    } else {
+      var lines = [parsed.headers.map(csvCell).join(',')];
+      parsed.rows.forEach(function (values) {
+        lines.push(values.map(csvCell).join(','));
+      });
+      Admin.download(filename + '.csv', '\ufeff' + lines.join('\r\n') + '\r\n', 'text/csv;charset=utf-8');
+    }
+    Admin.toastOk('已导出 ' + parsed.rows.length + ' 行到' + (opts.format === 'json' ? ' JSON' : ' CSV'));
+    return parsed.rows.length;
+  };
+
+  /**
+   * CSV 单元格转义，并阻断「公式注入」（= + - @ 开头会被 Excel 当公式执行）。
+   */
+  function csvCell(value) {
+    var v = value === null || value === undefined ? '' : String(value);
+    if (/^[=+\-@\t\r]/.test(v)) { v = "'" + v; }
+    if (/[",\r\n]/.test(v) || v.charAt(0) === ' ' || v.charAt(v.length - 1) === ' ') {
+      v = '"' + v.replace(/"/g, '""') + '"';
+    }
+    return v;
+  }
+
+  /** 触发浏览器下载（Blob + object URL）。 */
+  Admin.download = function (filename, content, mime) {
+    var blob = new Blob([content], { type: mime || 'text/plain;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var link = Admin.el('a', { href: url, download: filename });
+    document.body.appendChild(link);
+    link.click();
+    setTimeout(function () {
+      URL.revokeObjectURL(url);
+      link.remove();
+    }, 400);
+  };
+
+  /** 复制到剪贴板（带降级方案）。 */
+  Admin.copy = function (text) {
+    if (navigator.clipboard && global.isSecureContext) {
+      return navigator.clipboard.writeText(text).then(function () {
+        Admin.toastOk('已复制到剪贴板');
+      }).catch(function () { return Admin.copyFallback(text); });
+    }
+    return Admin.copyFallback(text);
+  };
+
+  Admin.copyFallback = function (text) {
+    var area = Admin.el('textarea', { class: 'sr-only' });
+    area.value = text;
+    document.body.appendChild(area);
+    area.select();
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    area.remove();
+    if (ok) { Admin.toastOk('已复制到剪贴板'); }
+    else { Admin.toastWarn('当前环境不支持自动复制，请手动选择文本'); }
+    return Promise.resolve(ok);
+  };
+
+  /* ------------------------------------------------------------------ *
+   * 13. Canvas 图表（自绘，不依赖 echarts / 任何 CDN，跟随主题重绘）
+   * ------------------------------------------------------------------ */
+  function cssVar(name, fallback) {
+    var v = getComputedStyle(document.documentElement).getPropertyValue(name);
+    return (v && v.trim()) || fallback;
+  }
+
+  Admin.chart = {
+    palette: ['#2f6bff', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#0ea5e9'],
+
+    /**
+     * render(canvas, spec)
+     * spec: { type:'line'|'bar', labels:[], series:[{name,data,color,fill}], yFormat, hint }
+     */
+    render: function (canvas, spec) {
+      if (!canvas) { return; }
+      var ctx = canvas.getContext('2d');
+      var dpr = global.devicePixelRatio || 1;
+      var rect = canvas.getBoundingClientRect();
+      var width = Math.max(rect.width, 200);
+      var height = Math.max(rect.height, 140);
+      canvas.width = Math.round(width * dpr);
+      canvas.height = Math.round(height * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, width, height);
+
+      var border = cssVar('--border', '#e2e8f2');
+      var textFaint = cssVar('--text-faint', '#94a3b8');
+      var textMuted = cssVar('--text-muted', '#64748b');
+      var surface = cssVar('--bg-elevated', '#fff');
+      var fmt = spec.yFormat || function (v) { return String(v); };
+
+      var labels = spec.labels || [];
+      var series = (spec.series || []).filter(function (s) { return s && s.data; });
+      if (!series.length || !labels.length) {
+        ctx.fillStyle = textFaint;
+        ctx.font = '12px ' + cssVar('--font', 'sans-serif');
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('暂无数据', width / 2, height / 2);
+        return;
+      }
+
+      var padding = { top: 14, right: 14, bottom: 28, left: 56 };
+      var plotW = Math.max(width - padding.left - padding.right, 10);
+      var plotH = Math.max(height - padding.top - padding.bottom, 10);
+
+      var max = 0;
+      series.forEach(function (s) {
+        s.data.forEach(function (v) { if (v > max) { max = v; } });
+      });
+      if (max <= 0) { max = 1; }
+      var magnitude = Math.pow(10, Math.floor(Math.log(max) / Math.LN10));
+      var niceMax = Math.ceil(max / (magnitude / 2)) * (magnitude / 2);
+      if (niceMax <= 0) { niceMax = 1; }
+
+      ctx.strokeStyle = border;
+      ctx.fillStyle = textFaint;
+      ctx.lineWidth = 1;
+      ctx.font = '11px ' + cssVar('--font', 'sans-serif');
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      var ticks = 4;
+      for (var i = 0; i <= ticks; i++) {
+        var value = (niceMax / ticks) * i;
+        var y = padding.top + plotH - (plotH * (value / niceMax));
+        ctx.beginPath();
+        ctx.moveTo(padding.left, Math.round(y) + 0.5);
+        ctx.lineTo(padding.left + plotW, Math.round(y) + 0.5);
+        ctx.stroke();
+        ctx.fillText(fmt(value), padding.left - 6, y);
+      }
+
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      var step = Math.ceil(labels.length / Math.max(2, Math.floor(plotW / 70)));
+      labels.forEach(function (label, index) {
+        if (index % step !== 0 && index !== labels.length - 1) { return; }
+        var x = labels.length === 1
+          ? padding.left + plotW / 2
+          : padding.left + (plotW * index) / (labels.length - 1);
+        ctx.fillText(String(label), x, padding.top + plotH + 8);
+      });
+
+      function xAt(index) {
+        if (labels.length === 1) { return padding.left + plotW / 2; }
+        return padding.left + (plotW * index) / (labels.length - 1);
+      }
+      function yAt(v) {
+        return padding.top + plotH - (plotH * (v / niceMax));
+      }
+
+      if (spec.type === 'bar') {
+        var groupW = plotW / Math.max(labels.length, 1);
+        var barW = Math.max(2, (groupW * 0.62) / series.length);
+        series.forEach(function (s, si) {
+          ctx.fillStyle = s.color || Admin.chart.palette[si % Admin.chart.palette.length];
+          s.data.forEach(function (v, idx) {
+            var x = padding.left + groupW * idx + groupW * 0.19 + barW * si;
+            var y = yAt(v);
+            var h = Math.max(padding.top + plotH - y, v > 0 ? 2 : 0);
+            var r = Math.min(3, barW / 2);
+            ctx.beginPath();
+            ctx.moveTo(x, y + h);
+            ctx.lineTo(x, y + r);
+            ctx.quadraticCurveTo(x, y, x + r, y);
+            ctx.lineTo(x + barW - r, y);
+            ctx.quadraticCurveTo(x + barW, y, x + barW, y + r);
+            ctx.lineTo(x + barW, y + h);
+            ctx.closePath();
+            ctx.fill();
+          });
+        });
+      } else {
+        series.forEach(function (s, si) {
+          var color = s.color || Admin.chart.palette[si % Admin.chart.palette.length];
+          if (!s.data.length) { return; }
+          ctx.beginPath();
+          s.data.forEach(function (v, idx) {
+            if (idx === 0) { ctx.moveTo(xAt(idx), yAt(v)); }
+            else { ctx.lineTo(xAt(idx), yAt(v)); }
+          });
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 2;
+          ctx.lineJoin = 'round';
+          ctx.stroke();
+
+          if (s.fill !== false) {
+            ctx.lineTo(xAt(s.data.length - 1), padding.top + plotH);
+            ctx.lineTo(xAt(0), padding.top + plotH);
+            ctx.closePath();
+            var gradient = ctx.createLinearGradient(0, padding.top, 0, padding.top + plotH);
+            gradient.addColorStop(0, color + '44');
+            gradient.addColorStop(1, color + '05');
+            ctx.fillStyle = gradient;
+            ctx.fill();
+          }
+
+          ctx.fillStyle = surface;
+          ctx.strokeStyle = color;
+          s.data.forEach(function (v, idx) {
+            if (s.data.length > 40 && idx % 2 !== 0) { return; }
+            ctx.beginPath();
+            ctx.arc(xAt(idx), yAt(v), 2.4, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+          });
+        });
+      }
+
+      ctx.strokeStyle = border;
+      ctx.beginPath();
+      ctx.moveTo(padding.left, padding.top);
+      ctx.lineTo(padding.left, padding.top + plotH);
+      ctx.lineTo(padding.left + plotW, padding.top + plotH);
+      ctx.stroke();
+
+      if (spec.hint) {
+        ctx.fillStyle = textMuted;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        ctx.font = '11px ' + cssVar('--font', 'sans-serif');
+        ctx.fillText(spec.hint, padding.left + 4, padding.top + 2);
+      }
+    },
+
+    /** 绑定尺寸变化与主题切换自动重绘，返回手动重绘函数。 */
+    auto: function (canvas, getSpec) {
+      var redraw = function () { Admin.chart.render(canvas, getSpec()); };
+      if (global.ResizeObserver) {
+        var ro = new ResizeObserver(function () { redraw(); });
+        ro.observe(canvas);
+      } else {
+        global.addEventListener('resize', redraw);
+      }
+      document.addEventListener('admin:themechange', redraw);
+      redraw();
+      return redraw;
+    },
+
+    /** 渲染图例。 */
+    legend: function (container, series) {
+      if (!container) { return; }
+      container.textContent = '';
+      series.forEach(function (s, i) {
+        container.appendChild(Admin.el('span', { class: 'legend__item' }, [
+          Admin.el('span', {
+            class: 'legend__swatch',
+            style: { background: s.color || Admin.chart.palette[i % Admin.chart.palette.length] }
+          }),
+          Admin.el('span', { text: s.name })
+        ]));
+      });
+    },
+
+    /** 渲染柱状统计卡片集合。 */
+    bars: function (container, items, options) {
+      if (!container) { return; }
+      var opts = options || {};
+      container.textContent = '';
+      if (!items.length) {
+        container.appendChild(Admin.el('div', { class: 'empty', text: opts.emptyText || '暂无数据' }));
+        return;
+      }
+      var max = 0;
+      items.forEach(function (item) { max = Math.max(max, Number(item.value) || 0); });
+      items.forEach(function (item) {
+        var pct = max > 0 ? Math.round((Number(item.value) || 0) * 100 / max) : 0;
+        container.appendChild(Admin.el('div', { class: 'bar-row' }, [
+          Admin.el('span', { class: 'bar-row__label mono truncate', title: String(item.label), text: String(item.label) }),
+          Admin.el('span', { class: 'bar-row__track' }, [
+            Admin.el('span', { class: 'bar-row__fill', style: { width: pct + '%' } })
+          ]),
+          Admin.el('span', { class: 'bar-row__value', text: opts.format ? opts.format(item.value) : String(item.value) })
+        ]));
+      });
+    }
+  };
+
+  /* ------------------------------------------------------------------ *
+   * 14. 自动刷新
+   * ------------------------------------------------------------------ */
+  /**
+   * 为列表页提供「自动刷新」开关，并把偏好写入 localStorage。
+   *
+   * @param {object} options
+   *   toggle     开关元素（checkbox）
+   *   interval   间隔毫秒，默认 15000
+   *   storageKey 偏好键
+   *   onTick     每次触发时执行
+   *   countdown  可选，显示倒计时的元素
+   */
+  Admin.autoRefresh = function (options) {
+    var opts = options || {};
+    var interval = Number(opts.interval) || 15000;
+    var storageKey = opts.storageKey || 'px_admin_autorefresh';
+    var toggle = typeof opts.toggle === 'string' ? $(opts.toggle) : opts.toggle;
+    var timer = null;
+    var remaining = Math.round(interval / 1000);
+
+    function readPref() {
+      try { return localStorage.getItem(storageKey) === '1'; } catch (e) { return false; }
+    }
+    function writePref(on) {
+      try { localStorage.setItem(storageKey, on ? '1' : '0'); } catch (e) { /* 隐私模式忽略 */ }
+    }
+    function paintCountdown() {
+      if (opts.countdown) { opts.countdown.textContent = '下次刷新 ' + remaining + ' 秒'; }
+    }
+    function tick() {
+      remaining -= 1;
+      if (remaining <= 0) {
+        remaining = Math.round(interval / 1000);
+        if (typeof opts.onTick === 'function') { opts.onTick(); }
+      }
+      paintCountdown();
+    }
+    function start() {
+      stop();
+      remaining = Math.round(interval / 1000);
+      paintCountdown();
+      timer = setInterval(tick, 1000);
+    }
+    function stop() {
+      if (timer) { clearInterval(timer); timer = null; }
+      if (opts.countdown) { opts.countdown.textContent = ''; }
+    }
+    function set(on) {
+      if (toggle) { toggle.checked = on; }
+      writePref(on);
+      if (on) { start(); } else { stop(); }
+    }
+
+    var api = {
+      start: start,
+      stop: stop,
+      set: set,
+      isRunning: function () { return timer !== null; }
+    };
+
+    if (toggle) {
+      toggle.addEventListener('change', function () { set(toggle.checked); });
+    }
+    // 从偏好恢复
+    set(readPref());
+    return api;
+  };
+
+  /* ------------------------------------------------------------------ *
+   * 15. 批量选择
+   * ------------------------------------------------------------------ */
+  /**
+   * 为表格提供「复选框 + 全选」能力。
+   *
+   * @param {object} options
+   *   table       表格元素或 id
+   *   selectAll   全选复选框
+   *   keyOf       从行元素取唯一键的函数，默认读 data-key
+   *   onChange    选择变化回调 (keys)
+   *   actions     需要随选中数量启用的按钮（元素或数组）
+   */
+  Admin.selection = function (options) {
+    var opts = options || {};
+    var table = typeof opts.table === 'string' ? document.getElementById(opts.table) : opts.table;
+    if (!table) { return null; }
+    var selectAll = typeof opts.selectAll === 'string' ? document.getElementById(opts.selectAll) : opts.selectAll;
+
+    function boxes() {
+      return $$('input[type="checkbox"][data-row-key]', table);
+    }
+    function keyOf(row) {
+      if (typeof opts.keyOf === 'function') { return opts.keyOf(row); }
+      return row.getAttribute('data-key') || '';
+    }
+    function keys() {
+      return boxes().filter(function (b) { return b.checked; })
+        .map(function (b) { return b.getAttribute('data-row-key'); })
+        .filter(function (k) { return !!k; });
+    }
+    function sync() {
+      var all = boxes();
+      var checked = all.filter(function (b) { return b.checked; });
+      if (selectAll) {
+        selectAll.checked = all.length > 0 && checked.length === all.length;
+        selectAll.indeterminate = checked.length > 0 && checked.length < all.length;
+      }
+      var count = checked.length;
+      var targets = opts.actions ? (Array.isArray(opts.actions) ? opts.actions : [opts.actions]) : [];
+      targets.forEach(function (btn) {
+        var el = typeof btn === 'string' ? document.getElementById(btn) : btn;
+        if (!el) { return; }
+        el.disabled = count === 0;
+        var label = el.getAttribute('data-label') || '';
+        if (label) {
+          el.textContent = '';
+          el.appendChild(Admin.svgNode(el.getAttribute('data-icon-name') || 'trash', 'icon--sm'));
+          el.appendChild(Admin.el('span', {
+            text: label + (count ? ' (' + count + ')' : '')
+          }));
+        }
+      });
+      if (typeof opts.onChange === 'function') { opts.onChange(keys()); }
+    }
+    function clear() {
+      boxes().forEach(function (b) { b.checked = false; });
+      sync();
+    }
+
+    if (selectAll) {
+      selectAll.addEventListener('change', function () {
+        boxes().forEach(function (b) { b.checked = selectAll.checked; });
+        sync();
+      });
+    }
+    table.addEventListener('change', function (ev) {
+      if (ev.target && ev.target.matches && ev.target.matches('input[type="checkbox"][data-row-key]')) {
+        sync();
+      }
+    });
+    sync();
+    return { keys: keys, clear: clear, sync: sync };
+  };
+
+  /* ------------------------------------------------------------------ *
+   * 16. 危险操作：批量确认
+   * ------------------------------------------------------------------ */
+  /** 通用「批量删除」流程：确认 → POST → toast → 回调刷新。 */
+  Admin.batchRemove = function (options) {
+    var opts = options || {};
+    var ids = opts.ids || [];
+    if (!ids.length) {
+      Admin.toastWarn('请先勾选要处理的记录');
+      return Promise.resolve(false);
+    }
+    var preview = ids.slice(0, 6).join('、') + (ids.length > 6 ? ' 等' : '');
+    return Admin.confirm({
+      title: opts.title || '批量操作确认',
+      message: (opts.message || ('确定处理选中的 ' + ids.length + ' 条记录吗？')),
+      detail: preview,
+      okText: opts.okText || '确认执行',
+      danger: true
+    }).then(function (yes) {
+      if (!yes) { return false; }
+      return Admin.post(opts.url, (function () {
+        var form = { ids: ids.join(',') };
+        if (opts.extra) {
+          Object.keys(opts.extra).forEach(function (k) { form[k] = opts.extra[k]; });
+        }
+        return form;
+      })()).then(function (res) {
+        var payload = res.data;
+        if (!res.ok || !Admin.isOk(payload)) {
+          Admin.toastErr(Admin.msgOf(payload, '操作失败（HTTP ' + res.status + '）'));
+          return false;
+        }
+        Admin.toastOk(Admin.msgOf(payload, '操作完成'));
+        if (typeof opts.onDone === 'function') { opts.onDone(payload); }
+        return true;
+      }).catch(function (err) {
+        Admin.toastErr(err.message || '操作失败');
+        return false;
+      });
+    });
+  };
+
+  /* ------------------------------------------------------------------ *
+   * 17. 启动
    * ------------------------------------------------------------------ */
   function boot() {
     Admin.theme.init();

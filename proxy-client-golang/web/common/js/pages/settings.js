@@ -179,7 +179,7 @@
       els.copyBtn.disabled = false;
       els.qrBox.classList.add('hidden');
       els.qrWarn.classList.add('hidden');
-      els.qrImg.removeAttribute('src');
+      hideQrImage();
       els.qrMeta.textContent = '导出内容 ' + byteLength(state.exportText) + ' 字节，可生成二维码分享。';
       els.exportMeta.textContent = '共 ' + list.length + ' 条隧道 · ' +
         (data.withSecret ? '包含凭据' : '不含凭据') + ' · ' + byteLength(state.exportText) + ' 字节';
@@ -243,6 +243,21 @@
     els.qrWarn.classList.remove('hidden');
   }
 
+  /* 二维码图片的 blob: 对象 URL。必须显式 revoke，否则每次生成都会泄漏一份内存。 */
+  var qrObjectUrl = null;
+
+  function releaseQrUrl() {
+    if (qrObjectUrl && typeof URL !== 'undefined' && URL.revokeObjectURL) {
+      try { URL.revokeObjectURL(qrObjectUrl); } catch (e) { /* 忽略 */ }
+    }
+    qrObjectUrl = null;
+  }
+
+  function hideQrImage() {
+    releaseQrUrl();
+    els.qrImg.removeAttribute('src');
+  }
+
   function makeQr() {
     if (!state.exportPayload) {
       PX.toastWarn('请先导出配置，再生成二维码');
@@ -250,8 +265,12 @@
     }
     var share = compactShareText(state.exportPayload);
     var bytes = byteLength(share);
-    var url = '/console/share/qr?data=' + encodeURIComponent(share) +
-      '&token=' + encodeURIComponent(readToken());
+    /* 【安全修复】原来把控制台令牌拼进 <img src="/console/share/qr?...&token=...">，
+       URL 会进入浏览器历史、Referer 以及各类访问日志。现在改成用 fetch 带
+       X-Proxy-Token 头取回 PNG，再用 blob: 对象 URL 渲染。 */
+    var url = '/console/share/qr?data=' + encodeURIComponent(share);
+    var token = readToken();
+    var headers = token ? { 'X-Proxy-Token': token } : {};
 
     els.qrMeta.textContent = '分享内容 ' + bytes + ' 字节（二维码上限 ' + QR_MAX_BYTES + ' 字节）。';
     els.qrWarn.classList.add('hidden');
@@ -259,22 +278,29 @@
 
     /* 先用 fetch 探测：二维码接口在内容超长时返回 413 + JSON 错误信息，
        直接给 <img> 赋 src 只能拿到一个笼统的加载失败。 */
-    fetch(url, { method: 'GET', credentials: 'same-origin', cache: 'no-store' }).then(function (res) {
-      if (res.ok) return true;
-      return res.text().then(function (body) {
-        var msg = '';
-        try {
-          var data = JSON.parse(body);
-          msg = data.Msg || data.msg || data.message || '';
-        } catch (e) { msg = ''; }
-        throw new PX.ApiError(msg || ('二维码生成失败（HTTP ' + res.status + '）'), res.status, null);
-      });
-    }).then(function () {
-      els.qrImg.setAttribute('src', url);
+    fetch(url, { method: 'GET', headers: headers, credentials: 'same-origin', cache: 'no-store' }).then(function (res) {
+      if (!res.ok) {
+        return res.text().then(function (body) {
+          var msg = '';
+          try {
+            var data = JSON.parse(body);
+            msg = data.Msg || data.msg || data.message || '';
+          } catch (e) { msg = ''; }
+          throw new PX.ApiError(msg || ('二维码生成失败（HTTP ' + res.status + '）'), res.status, null);
+        });
+      }
+      return res.blob();
+    }).then(function (blob) {
+      if (typeof URL === 'undefined' || !URL.createObjectURL) {
+        throw new PX.ApiError('当前浏览器不支持生成二维码图片', 0, null);
+      }
+      releaseQrUrl();
+      qrObjectUrl = URL.createObjectURL(blob);
+      els.qrImg.setAttribute('src', qrObjectUrl);
       els.qrBox.classList.remove('hidden');
       PX.toastOk('二维码已生成（' + bytes + ' 字节）');
     }).catch(function (err) {
-      els.qrImg.removeAttribute('src');
+      hideQrImage();
       els.qrBox.classList.add('hidden');
       var reason = err && err.message ? err.message : '二维码生成失败';
       var oversize = bytes > QR_MAX_BYTES || (err && err.status === 413);
@@ -493,6 +519,7 @@
 
     els.qrImg.addEventListener('error', function () {
       els.qrBox.classList.add('hidden');
+      hideQrImage();
       showQrWarn('二维码图片加载失败，请重试，或改用「复制」/「下载 JSON」分享配置。');
     });
 

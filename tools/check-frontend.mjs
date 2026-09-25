@@ -158,20 +158,26 @@ else {
 
 /* ------------------------------------------------------------------ *
  * D. 模板引用的 Admin.* API 是否真实存在
+ *    admin 后台的 Admin.* 可能分布在多个自研脚本里（admin.js / qrcode.js 等），
+ *    因此把所有非第三方 JS 的定义汇总起来判断。
  * ------------------------------------------------------------------ */
-if (exists(adminJsPath)) {
-  const adminJs = read(adminJsPath);
+const ADMIN_JS_DIR = 'proxy-server/src/main/resources/static/common/js';
+const VENDOR_JS = /(mdui|jquery|echarts|paging)(\.min)?\.js$/;
+const adminJsFiles = walk(ADMIN_JS_DIR, (p) => p.endsWith('.js') && !VENDOR_JS.test(p));
+if (adminJsFiles.length) {
   const tplFiles = walk(ADMIN_TPL, (p) => p.endsWith('.ftl'));
   const referenced = new Set();
   for (const file of tplFiles) {
     for (const m of read(file).matchAll(/\bAdmin\.([A-Za-z_$][\w$]*)/g)) referenced.add(m[1]);
   }
-  for (const m of adminJs.matchAll(/\bAdmin\.([A-Za-z_$][\w$]*)\s*=/g)) referenced.delete(m[1]);
   const defined = new Set();
-  for (const m of adminJs.matchAll(/\bAdmin\.([A-Za-z_$][\w$]*)\s*=/g)) defined.add(m[1]);
+  for (const file of adminJsFiles) {
+    const src = read(file);
+    for (const m of src.matchAll(/\bAdmin\.([A-Za-z_$][\w$]*)\s*=/g)) defined.add(m[1]);
+  }
   const missing = [...referenced].filter((name) => !defined.has(name));
   if (missing.length) fail('admin-api', `模板调用了未定义的 Admin.* -> ${missing.join(', ')}`);
-  else pass('admin-api', `模板引用的 Admin.* API 全部存在（${[...referenced].length} 个）`);
+  else pass('admin-api', `模板引用的 Admin.* API 全部存在（引用 ${referenced.size} 个，定义 ${defined.size} 个，来自 ${adminJsFiles.length} 个脚本）`);
 }
 
 /* ------------------------------------------------------------------ *
@@ -240,8 +246,8 @@ function trustedInnerHtmlRhs(line) {
 const scanRoots = [
   { dir: GO_WEB, filter: (p) => /\.(html|js)$/.test(p) },
   // templates/email 是发信正文，外部图片属正常邮件实践，不参与前端资源扫描
-  { dir: 'proxy-server/src/main/resources', filter: (p) => /\.(html|js|ftl)$/.test(p) && !/mdui(\.min)?\.js|jquery|echarts|paging\.js|templates\/email\//.test(p) },
-  { dir: 'proxy-proxy/src/main/resources', filter: (p) => /\.(html|js|ftl)$/.test(p) && !/mdui(\.min)?\.js|jquery|echarts|paging\.js/.test(p) }
+  { dir: 'proxy-server/src/main/resources', filter: (p) => /\.(html|js|ftl)$/.test(p) && !/(mdui|jquery|echarts|paging)(\.min)?\.js$/.test(p) && !/templates\/email\//.test(p) },
+  { dir: 'proxy-proxy/src/main/resources', filter: (p) => /\.(html|js|ftl)$/.test(p) && !/(mdui|jquery|echarts|paging)(\.min)?\.js$/.test(p) }
 ];
 for (const { dir, filter } of scanRoots) {
   for (const file of walk(dir, filter)) {
