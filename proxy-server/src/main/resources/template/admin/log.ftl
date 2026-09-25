@@ -86,6 +86,8 @@
                     <canvas id="portChart" role="img" aria-label="按端口流量分布图"></canvas>
                 </div>
                 <div class="legend" id="portLegend"></div>
+                <#--  图表之外的精确数值：用条形占比列出流量最高的端口  -->
+                <div class="bar-list mt-4" id="portList" aria-label="端口流量排行"></div>
             </div>
         </div>
     </section>
@@ -250,6 +252,16 @@
 
                 if (redrawDay) { redrawDay(); }
                 if (redrawPort) { redrawPort(); }
+
+                // 精确数值排行（条形占比），与柱状图同源
+                Admin.chart.bars(document.getElementById('portList'),
+                    byPort.slice(0, 8).map(function (d) {
+                        return {
+                            label: String(d.port),
+                            value: (Number(d.receive) || 0) + (Number(d.send) || 0)
+                        };
+                    }),
+                    { format: Admin.fmtBytes, emptyText: '暂无端口数据' });
 
                 document.getElementById('dayHint').textContent =
                     '累计接收 ' + Admin.fmtBytes(total.receive) + ' · 发送 ' + Admin.fmtBytes(total.send);
