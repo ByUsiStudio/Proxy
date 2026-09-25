@@ -1904,7 +1904,21 @@ func InitCloudDevice(apiAddress string, deviceId string, level int, logger logge
 		return
 	}
 
-	resp, err := apiClient.Get(ApiUrl + "/config/listDevice?deviceId=" + url.QueryEscape(deviceId))
+	// 【安全修复配套】云端 /config/listDevice 现在要求账号凭据，
+	// 否则任何人都能凭一个设备ID拿到该账号的明文口令与内网配置。
+	// 首次启动（尚未登录控制台）时凭据只能来自启动参数/环境变量：
+	//   -apiUser <账号> -apiPass <口令>
+	// 未提供时不再发起请求，只给出一条明确的操作提示（而不是静默失败）。
+	apiUser := strings.TrimSpace(os.Getenv("API_USER"))
+	apiPass := os.Getenv("API_PASS")
+	if apiUser == "" || apiPass == "" {
+		log.Warnf("未提供云端账号凭据，跳过自动穿透配置加载。" +
+			"如需开机自动创建隧道，请使用 -apiUser <账号> -apiPass <口令> 启动（或设置 API_USER/API_PASS）")
+		return
+	}
+
+	resp, err := apiClient.Get(ApiUrl + "/config/listDevice?deviceId=" + url.QueryEscape(deviceId) +
+		"&username=" + url.QueryEscape(apiUser) + "&password=" + url.QueryEscape(apiPass))
 	if err != nil {
 		log.Errorf("获取设备配置失败: %v", err)
 		return

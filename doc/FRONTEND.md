@@ -158,7 +158,7 @@ mvn -o -DskipTests compile
 
 | 项目 | 结果 |
 | --- | --- |
-| `tools/check-frontend.mjs` | 全部通过：8 个页面脚本共 164 个 DOM id 引用全部存在；Go 控制台 47 个 / 后台 51 个图标名全部有效；后台模板引用的 26 个 `Admin.*` API 全部存在；危险 sink 仅剩「内置图标常量」用法；无外部 CDN 引用；后台模板无未转义插值 |
+| `tools/check-frontend.mjs` | 全部通过：8 个页面脚本共 164 个 DOM id 引用全部存在；Go 控制台 47 个 / 后台 51 个图标名全部有效；后台模板引用的 26 个 `Admin.*` API 全部存在；危险 sink 仅剩「内置图标常量」用法；无外部 CDN 引用；**23 个 FreeMarker 模板**（后台/站点 17 + 节点端 6）均无未转义插值 |
 | `check-tags.ps1` | 12 个后台模板全部 OK |
 | `tools/template-check` | 23 个 FreeMarker 模板全部解析通过（含本轮重写的 `admin/log.ftl`、`admin/config.ftl`） |
 | `tools/qr-verify` | 35/35 一致（其中 4 项仅掩码选择不同、矩阵等价），覆盖版本 1-10 容量边界与 UTF-8 多字节内容 |

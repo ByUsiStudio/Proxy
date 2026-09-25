@@ -288,30 +288,44 @@ pass('extern', '外部资源扫描完成（用户可见的文档链接不计入�
 
 /* ------------------------------------------------------------------ *
  * G. FreeMarker 未转义插值
+ *    proxy-server 与 proxy-proxy 的模板都不经过自动转义，凡是把数据写进
+ *    HTML（文本或属性）的插值都必须显式 ?html/?url/?js_string/?c。
  * ------------------------------------------------------------------ */
-const TPL_ALLOW_NO_ESCAPE = /^\s*(?:\$\{)?(?:totalRow\?c|page\?c|totalPage\?c|\d+)(?:\})?/;
-for (const file of walk(ADMIN_TPL, (p) => p.endsWith('.ftl'))) {
-  const src = read(file);
-  const lines = src.split(/\r?\n/);
-  const bad = [];
-  lines.forEach((line, i) => {
-    // 跳过 FreeMarker 注释行与指令行
-    if (/^\s*<#--/.test(line) || /^\s*<#/.test(line)) return;
-    for (const m of line.matchAll(/\$\{([^}]*)\}/g)) {
-      const expr = m[1].trim();
-      if (!expr) continue;
-      // 已转义
-      if (/\?(html|js_string|url|json_string)\b/.test(expr)) continue;
-      // 纯数字字面量 / 布尔
-      if (/^[-\d.]+$/.test(expr) || expr === 'true' || expr === 'false') continue;
-      // 显式转数字（?c）、集合大小（?size）等不可能承载 HTML 的表达式
-      if (/\?(c|size)\b/.test(expr)) continue;
-      bad.push(`行 ${i + 1}: \${${expr}}`);
+const FTL_ROOTS = [
+  { dir: ADMIN_TPL, label: '管理后台/站点' },
+  { dir: 'proxy-proxy/src/main/resources/template', label: '节点端' }
+];
+for (const { dir, label } of FTL_ROOTS) {
+  const files = walk(dir, (p) => p.endsWith('.ftl'));
+  if (!files.length) continue;
+  let scanned = 0;
+  for (const file of files) {
+    scanned++;
+    const src = read(file);
+    const lines = src.split(/\r?\n/);
+    const bad = [];
+    lines.forEach((line, i) => {
+      // 跳过 FreeMarker 注释行与指令行（<#assign ...> 里不是输出位置）
+      if (/^\s*<#--/.test(line) || /^\s*<#/.test(line)) return;
+      for (const m of line.matchAll(/\$\{([^}]*)\}/g)) {
+        const expr = m[1].trim();
+        if (!expr) continue;
+        // 已转义
+        if (/\?(html|js_string|url|json_string)\b/.test(expr)) continue;
+        // 纯数字字面量 / 布尔
+        if (/^[-\d.]+$/.test(expr) || expr === 'true' || expr === 'false') continue;
+        // 显式转数字（?c）、集合大小（?size）等不可能承载 HTML 的表达式
+        if (/\?(c|size)\b/.test(expr)) continue;
+        // if/else 条件里的插值不构成输出（极少数写法），保守起见仍然报出
+        bad.push(`行 ${i + 1}: \${${expr}}`);
+      }
+    });
+    if (bad.length) {
+      fail('ftl-escape', `${label}/${basename(file)}: 存在未转义插值 -> ${bad.slice(0, 6).join(' | ')}${bad.length > 6 ? ` …(共 ${bad.length} 处)` : ''}`);
     }
-  });
-  if (bad.length) fail('ftl-escape', `${basename(file)}: 存在未转义插值 -> ${bad.slice(0, 6).join(' | ')}${bad.length > 6 ? ` …(共 ${bad.length} 处)` : ''}`);
+  }
+  pass('ftl-escape', `${label}：${scanned} 个模板完成转义扫描`);
 }
-pass('ftl-escape', 'FreeMarker 转义扫描完成');
 
 /* ------------------------------------------------------------------ *
  * 输出

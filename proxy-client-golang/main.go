@@ -66,6 +66,9 @@ func main() {
 		webHost  string
 		webPort  int
 		webToken string
+		// 云端账号凭据：仅用于启动时拉取自动穿透配置
+		apiUser string
+		apiPass string
 		// SSL配置参数
 		sslEnabled      bool
 		sslCertFile     string
@@ -82,6 +85,10 @@ func main() {
 	flag.StringVar(&webHost, "webHost", "", "Web控制台监听地址(默认 127.0.0.1，0.0.0.0 表示允许局域网访问)")
 	flag.IntVar(&webPort, "webPort", 0, "Web控制台端口(默认 10240)")
 	flag.StringVar(&webToken, "webToken", "", "Web控制台访问令牌(远程访问时必须设置)")
+
+	// 云端账号凭据：自动穿透配置接口要求鉴权，首次启动时只能由这里提供。
+	flag.StringVar(&apiUser, "apiUser", "", "云端账号(用于启动时拉取自动穿透配置)")
+	flag.StringVar(&apiPass, "apiPass", "", "云端口令(用于启动时拉取自动穿透配置)")
 
 	// SSL/TLS配置参数
 	flag.BoolVar(&sslEnabled, "ssl", false, "启用SSL/TLS加密连接")
@@ -109,6 +116,15 @@ func main() {
 	}
 	if webPort > 0 {
 		_ = os.Setenv("WEB_PORT", strconv.Itoa(webPort))
+	}
+
+	// 云端账号凭据：命令行参数优先，其次环境变量（由 InitCloudDevice 读取）。
+	// 只在参数非空时覆盖环境变量，避免把已有配置清掉。
+	if apiUser != "" {
+		_ = os.Setenv("API_USER", apiUser)
+	}
+	if apiPass != "" {
+		_ = os.Setenv("API_PASS", apiPass)
 	}
 
 	// 初始化SSL配置

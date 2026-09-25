@@ -104,9 +104,9 @@ public class PhotoJpgMessageHandler extends PhotoMessageHandler {
     public boolean checkAndSavePhoto(byte[] bytes) {
         try {
             if (isPhotoDiscarded()) {
-                // 上一张图已因超限被丢弃：复位状态，等待下一张
+                // 上一张图已因超限被丢弃：复位状态后继续处理本次数据
+                resetPhotoDiscarded();
                 flag = false;
-                return false;
             }
             int pngStart = isJpgStart(bytes);
             int pngEnd = isJpgEnd(bytes);

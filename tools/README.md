@@ -20,10 +20,11 @@ node tools/check-frontend.mjs
 | `admin-api` | 后台模板调用的 `Admin.*` API 都由 `static/common/js` 下的自研脚本导出 |
 | `sink` | 扫描 `innerHTML` / `insertAdjacentHTML` / `document.write` / `eval` / `new Function` / 内联事件属性；只有「右侧确为内置图标常量」的用法才被放行，其余一律报错 |
 | `extern` | 扫描外部 CDN / 字体 / 图片引用（离线可用性与 CSP 要求） |
-| `ftl-escape` | 管理后台 FreeMarker 模板中未转义的 `${...}` 插值（该框架**不**自动转义，漏转义即 XSS） |
+| `ftl-escape` | `proxy-server/template`（后台/站点，17 个）与 `proxy-proxy/template`（节点端，6 个）中未转义的 `${...}` 插值（该框架**不**自动转义，漏转义即 XSS） |
 
-> 注意：`ftl-escape` 只覆盖 `proxy-server/src/main/resources/template`。
-> `proxy-proxy` 节点端模板由 `proxy-proxy` 模块自行保证转义。
+> 注意：`ftl-escape` 只覆盖 `proxy-server` 与 `proxy-proxy` 两个模块的
+> `src/main/resources/template` 目录；`proxy-server/src/main/resources/templates/email`
+> 下的邮件正文（含正常的外部图片引用）不参与扫描。
 
 ## 2. `qr-verify/` —— 纯前端二维码编码器回归测试
 

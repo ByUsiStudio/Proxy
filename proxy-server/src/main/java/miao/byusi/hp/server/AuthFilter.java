@@ -40,19 +40,25 @@ public class AuthFilter implements FilterAdapter {
     private static final Set<String> ADMIN_GET_PAGES = new HashSet<>(Arrays.asList(
             "/admin", "/admin/proxy", "/admin/user", "/admin/domain", "/admin/config",
             "/admin/log", "/admin/tips", "/admin/core", "/admin/app", "/admin/reg", "/admin/pay",
-            "/admin/login", "/admin/logout",
+            "/admin/login",
             // 只读接口（导出 / 图表数据）
             "/admin/log/export", "/admin/log/stats", "/admin/config/export"
     ));
 
     /**
-     * 【安全修复】以下路由在 template/admin/*.ftl 中是以 &lt;a href&gt; 链接调用的，模板不由本模块维护，
-     * 因此保留 GET 别名（否则管理页会失效）；但仍然要求已登录会话 + 同源 Origin/Referer 校验。
+     * 【安全修复】以下路由在 template/admin/*.ftl 中以 &lt;a href&gt; 或 GET 形式调用，
+     * 因此保留 GET 别名（否则管理页会失效）；但**不是**纯只读页面：
+     * 只要请求带了来源信息（Origin/Referer）就必须严格同源，因此跨站
+     * {@code <img src="/admin/logout">} 之类的伪造请求会被 403 拒绝。
      * 需要模板侧改成 POST 表单的清单见交付报告。
+     * <p>
+     * 注意 {@code /admin/logout} 也在此列：它是「改变服务端状态」的 GET
+     * （作废会话），放在这里可以挡掉「跨站强制登出」这类骚扰型 CSRF。
      */
     private static final Set<String> ADMIN_GET_LEGACY_REMOVE = new HashSet<>(Arrays.asList(
             "/admin/user/remove", "/admin/config/remove", "/admin/core/remove",
-            "/admin/domain/remove", "/admin/pay/remove", "/admin/app/remove", "/admin/log/remove"
+            "/admin/domain/remove", "/admin/pay/remove", "/admin/app/remove", "/admin/log/remove",
+            "/admin/logout"
     ));
 
     @Override

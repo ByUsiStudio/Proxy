@@ -116,10 +116,17 @@ public class HttpService {
                     MediaType.parse("application/json; charset=utf-8"),
                     WebConstConfig.JSON.writeValueAsBytes(statistics)
             );
-            okhttp3.Request request = new okhttp3.Request.Builder()
+            okhttp3.Request.Builder builder = new okhttp3.Request.Builder()
                     .url(url.toString())
-                    .post(requestBody)
-                    .build();
+                    .post(requestBody);
+            // 同时通过请求头携带（服务端优先读取请求头，避免框架对 JSON 请求体参数合并行为的影响）
+            if (!token.isEmpty()) {
+                builder.header("X-Cluster-Token", token);
+            }
+            if (!secret.isEmpty()) {
+                builder.header("X-Cluster-Secret", secret);
+            }
+            okhttp3.Request request = builder.build();
             String string = okHttpClient.newCall(request).execute().body().string();
             // 【安全修复】不回显完整响应，避免把服务端内部信息写进节点日志
             log.info("statistics 上报完成，code={}", responseCode(string));

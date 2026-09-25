@@ -764,7 +764,10 @@
    */
   Admin.request = function (url, options) {
     var opts = options || {};
-    var headers = {};
+    // X-Requested-With 让服务端能够区分「页面脚本发起」与「跨站表单提交」：
+    // 后台对「既无 Origin 又无 Referer」的状态变更请求要求该头，
+    // 而跨站表单无法伪造自定义请求头，因此这是 CSRF 校验的可靠补充。
+    var headers = { 'X-Requested-With': 'XMLHttpRequest' };
     var body;
     if (opts.json !== undefined) {
       headers['Content-Type'] = 'application/json;charset=UTF-8';

@@ -11,6 +11,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
@@ -173,7 +175,8 @@ public class PhotoController {
         } catch (Exception e) {
             log.error("删除图片目录失败: {}", e.getMessage());
         }
-        response.redirect("/photoList");
+        // 【安全修复 J6】/photoList 现在需要 @CheckApi，跳转必须继续携带 token
+        response.redirect(redirectTarget("/photoList", request));
     }
 
 
@@ -216,9 +219,6 @@ public class PhotoController {
         } catch (Exception e) {
             log.error("删除图片失败: {}", e.getMessage());
         }
-        // 【安全修复 J14】原实现把 URL 解码后的 {path} 第一段直接拼进 Location，
-        // 形如 %0d%0a 的输入可以污染 Location 响应头（响应拆分/重定向伪造）。
-        // 现在只允许跳转到「时间桶」白名单里的目录，其余一律回到图片根列表。
         String normalized = path == null ? "" : path.replace('\\', '/');
         String first = "";
         int slash = normalized.indexOf('/');
@@ -228,11 +228,29 @@ public class PhotoController {
             first = normalized;
         }
         if (TIME_BUCKET.matcher(first).matches()) {
-            response.redirect("/photo/" + first);
+            response.redirect(redirectTarget("/photo/" + first, request));
         } else {
             log.warn("photoRemove 的跳转目标不在时间桶白名单内，已回落到 /photoList");
-            response.redirect("/photoList");
+            response.redirect(redirectTarget("/photoList", request));
         }
+    }
+
+    /**
+     * 【安全修复 J14 / J6】跳转目标同样要带上 token。
+     * <p>
+     * J14：原实现把 URL 解码后的 {path} 第一段直接拼进 Location，
+     * 形如 %0d%0a 的输入可以污染 Location 响应头（响应拆分/重定向伪造）。
+     * 现在只允许跳转到「时间桶」白名单里的目录，其余一律回到图片根列表。
+     * <p>
+     * J6：/photo/* 与 /photoList 现在都需要 @CheckApi，因此重定向目标必须继续携带 token，
+     * 否则删除后的跳转会被鉴权拦截。
+     */
+    private static String redirectTarget(String path, HttpRequest request) {
+        String token = request == null ? null : request.query("token");
+        if (token == null || token.trim().isEmpty()) {
+            return path;
+        }
+        return path + "?token=" + URLEncoder.encode(token.trim(), StandardCharsets.UTF_8);
     }
 
 }

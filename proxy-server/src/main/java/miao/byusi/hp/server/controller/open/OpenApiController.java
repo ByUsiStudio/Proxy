@@ -340,8 +340,15 @@ public class OpenApiController {
      */
     @POST("/statistics/add")
     public JsonResult statisticsAdd(Statistics statistics, HttpRequest request) {
-        String token = request == null ? null : request.query("token");
-        String secret = request == null ? null : request.query("secret");
+        // 优先取请求头（不受框架对 JSON 请求体参数合并行为的影响），其次取查询参数
+        String token = request == null ? null : request.getHeader("x-cluster-token");
+        String secret = request == null ? null : request.getHeader("x-cluster-secret");
+        if (SafeInputUtil.isBlank(token)) {
+            token = request == null ? null : request.query("token");
+        }
+        if (SafeInputUtil.isBlank(secret)) {
+            secret = request == null ? null : request.query("secret");
+        }
         boolean tokenOk = !SafeInputUtil.isBlank(ConstConfig.REG_TOKEN) && !SafeInputUtil.isBlank(token)
                 && SafeInputUtil.safeEquals(ConstConfig.REG_TOKEN, token.trim());
         boolean secretOk = !SafeInputUtil.isBlank(ConstConfig.REG_SECRET) && !SafeInputUtil.isBlank(secret)
