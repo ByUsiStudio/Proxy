@@ -52,6 +52,51 @@
     <build>
         <!-- 见 properties 中 build.suffix 的说明：默认仍是 ./target -->
         <directory>${project.basedir}/target${build.suffix}</directory>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+                <version>3.5.0</version>
+                <executions>
+                    <execution>
+                        <id>enforce-jdk-25</id>
+                        <phase>validate</phase>
+                        <goals>
+                            <goal>enforce</goal>
+                        </goals>
+                        <configuration>
+                            <fail>true</fail>
+                            <rules>
+                                <requireJavaVersion>
+                                    <version>[25,)</version>
+                                    <message>
+构建需要 JDK 25 或更高版本，但当前 Maven 使用的 Java 版本低于 25。
+（Maven 只读取 JAVA_HOME，不会使用 PATH 中的 java。）
+
+请任选一种方式修复后重试：
+
+  1) PowerShell（仅当前窗口生效，最快）：
+       $env:JAVA_HOME="D:\App\Microsoft\jdk-25.0.4.101-hotspot"
+       mvn clean package
+
+  2) bash / Git Bash：
+       JAVA_HOME=/path/to/jdk-25 mvn clean package
+
+  3) 永久生效：把系统环境变量 JAVA_HOME 指向 JDK 25 目录，然后重开终端。
+
+  4) 多 JDK 共存时推荐用 Maven Toolchains：
+       在 ~/.m2/toolchains.xml 中声明 JDK 25，并在 pom 中启用 maven-toolchains-plugin，
+       这样无论 JAVA_HOME 指向哪个版本都能正确选择 JDK 25。
+
+确认当前实际使用的版本：mvn -version
+                                    </message>
+                                </requireJavaVersion>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
     </build>
 
 
