@@ -20,7 +20,38 @@ apt install git openjdk-25-jdk maven golang -y
 ```  
 > **报错处理**：复制完整日志求助AI工具，保持耐心  
 
-> **注意**：Java版本需25+，如系统无openjdk-25，可安装openjdk-21或更高版本  
+> **注意**：Java版本需25+。项目在 `pom.xml` 中把编译目标固定为 25
+> （`maven.compiler.source/target = 25`），并已加入 JDK 前置检查：
+> 版本不足时构建会在 `validate` 阶段直接给出修复指引，而不是抛出难以理解的
+> 「无效的目标发行版：25」。
+
+### 3. 让 Maven 使用正确的 JDK（最容易踩的坑）
+
+Maven **只读取 `JAVA_HOME`**，不会使用 `PATH` 里的 `java`。
+因此即使 `java -version` 显示 25，只要 `JAVA_HOME` 指向较旧的 JDK，
+`mvn clean package` 就会失败。先用一条命令确认：
+
+```bash
+mvn -version        # 看 "Java version" 那一行，必须 >= 25
+```
+
+版本不对时任选一种方式修复：
+
+```powershell
+# Windows PowerShell（仅当前窗口生效，最快）
+$env:JAVA_HOME="D:\App\Microsoft\jdk-25.0.4.101-hotspot"
+mvn clean package
+```
+
+```bash
+# bash / Git Bash
+JAVA_HOME=/path/to/jdk-25 mvn clean package
+```
+
+或把系统环境变量 `JAVA_HOME` 永久指向 JDK 25 目录后重开终端。
+
+> **多 JDK 共存**推荐使用 Maven Toolchains：在 `~/.m2/toolchains.xml` 中声明 JDK 25，
+> 这样无论 `JAVA_HOME` 指向哪个版本，构建都能选到正确的 JDK。  
 
 ---
 
