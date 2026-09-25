@@ -8,6 +8,7 @@ import cn.hserver.plugin.web.interfaces.HttpRequest;
 import cn.hserver.plugin.web.interfaces.HttpResponse;
 import miao.byusi.hp.proxy.config.CostConfig;
 import miao.byusi.hp.proxy.config.WebConfig;
+import miao.byusi.hp.proxy.utils.NetUtil;
 
 import java.lang.reflect.Method;
 
@@ -20,9 +21,12 @@ public class HookCheckApi implements HookAdapter {
         // 就 return，等于一键关闭全部接口鉴权。现在改为：
         // 1) 绝不再依据 notReg 跳过鉴权；
         // 2) 只有在显式开启 localOnly 且请求确实来自回环地址时，才允许跳过。
+        // 【安全修复 J1】「确实来自回环地址」必须依据 Netty Channel 上的真实 TCP 对端，
+        // 绝不能再用 httpRequest.getIpAddress()（它优先返回 X-Forwarded-For 等请求头，
+        // 远程攻击者伪造 X-Forwarded-For: 127.0.0.1 即可绕过全部 @CheckApi 鉴权）。
         WebConfig webConfig = IocUtil.getBean(WebConfig.class);
         HttpRequest httpRequest = HServerContextHolder.getWebKit().httpRequest;
-        if (Boolean.TRUE.equals(webConfig.getLocalOnly()) && isLoopback(httpRequest.getIpAddress())) {
+        if (Boolean.TRUE.equals(webConfig.getLocalOnly()) && NetUtil.isLoopbackPeer(httpRequest)) {
             return;
         }
         String token = httpRequest.query("token");
@@ -32,30 +36,6 @@ public class HookCheckApi implements HookAdapter {
                 || token == null || !token.equals(CostConfig.VER_TOKEN)) {
             throw new Exception("token 校验失败");
         }
-    }
-
-    private boolean isLoopback(String ip) {
-        if (ip == null) {
-            return false;
-        }
-        String v = ip.trim();
-        int slash = v.indexOf('/');
-        if (slash >= 0) {
-            v = v.substring(slash + 1);
-        }
-        if (v.startsWith("[")) {
-            int end = v.indexOf(']');
-            if (end > 0) {
-                v = v.substring(1, end);
-            }
-        } else {
-            int colon = v.lastIndexOf(':');
-            if (colon > 0) {
-                v = v.substring(0, colon);
-            }
-        }
-        return "127.0.0.1".equals(v) || "::1".equals(v) || "0:0:0:0:0:0:0:1".equals(v)
-                || "localhost".equalsIgnoreCase(v);
     }
 
     @Override

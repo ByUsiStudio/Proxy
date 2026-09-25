@@ -11,10 +11,10 @@ import cn.hserver.core.ioc.annotation.Bean;
 import miao.byusi.hp.server.domian.entity.UserEntity;
 import miao.byusi.hp.server.service.UserService;
 import miao.byusi.hp.server.utils.AdminSessionStore;
+import miao.byusi.hp.server.utils.NetUtil;
 import miao.byusi.hp.server.utils.SafeInputUtil;
 import miao.byusi.hp.server.utils.UserSessionStore;
 
-import java.net.URI;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
@@ -133,24 +133,38 @@ public class AuthFilter implements FilterAdapter {
 
         // 3) CSRF：管理后台的写操作只允许 POST/PUT/DELETE；
         //    模板里用 <a href> 的少数删除链接保留 GET 别名。
+        // 【安全修复 J12】区分三类请求，不再把「历史 GET 删除别名」当作纯只读页面：
+        //    a) 纯只读页面（ADMIN_GET_PAGES）→ 直接放行；
+        //    b) 历史 GET 变更别名（ADMIN_GET_LEGACY_REMOVE）→ 已登录会话 + 存在来源信息时严格同源；
+        //    c) 其余一律视为状态变更 → 方法白名单 + 严格的 scheme/host/port 同源校验。
         HttpMethod method = request.getRequestType();
-        boolean readPage = HttpMethod.GET.equals(method)
-                && (ADMIN_GET_PAGES.contains(uri) || ADMIN_GET_LEGACY_REMOVE.contains(uri));
-        boolean stateChanging = !readPage;
-        if (stateChanging) {
-            if (HttpMethod.GET.equals(method) || HttpMethod.HEAD.equals(method)) {
-                // 注意：sendStatusCode 只设置状态码，不会让框架 hasData()=true 从而中断请求，
-                // 必须同时写出响应体，否则控制器仍会执行。
-                webkit.httpResponse.sendStatusCode(io.netty.handler.codec.http.HttpResponseStatus.METHOD_NOT_ALLOWED);
-                webkit.httpResponse.sendText("");
-                return false;
-            }
-            // 4) Origin/Referer 同源校验（存在时才校验，兼容无该头的老客户端）
-            if (!sameOrigin(request)) {
+        boolean readPage = HttpMethod.GET.equals(method) && ADMIN_GET_PAGES.contains(uri);
+        if (readPage) {
+            return true;
+        }
+        boolean legacyGetMutation = HttpMethod.GET.equals(method) && ADMIN_GET_LEGACY_REMOVE.contains(uri);
+        if (legacyGetMutation) {
+            // <a href> 导航不会带 Origin、也无法携带自定义头，因此两者都缺失时仍需放行（否则模板失效）；
+            // 但只要浏览器给出了 Origin/Referer，就必须严格同源，跨站构造的 GET 会被拒绝。
+            if (hasOriginHint(request) && !sameOrigin(request)) {
                 webkit.httpResponse.sendStatusCode(io.netty.handler.codec.http.HttpResponseStatus.FORBIDDEN);
                 webkit.httpResponse.sendText("");
                 return false;
             }
+            return true;
+        }
+        if (HttpMethod.GET.equals(method) || HttpMethod.HEAD.equals(method)) {
+            // 注意：sendStatusCode 只设置状态码，不会让框架 hasData()=true 从而中断请求，
+            // 必须同时写出响应体，否则控制器仍会执行。
+            webkit.httpResponse.sendStatusCode(io.netty.handler.codec.http.HttpResponseStatus.METHOD_NOT_ALLOWED);
+            webkit.httpResponse.sendText("");
+            return false;
+        }
+        // 4) 强制 Origin/Referer 校验（缺失时要求 X-Requested-With: XMLHttpRequest）
+        if (!sameOrigin(request)) {
+            webkit.httpResponse.sendStatusCode(io.netty.handler.codec.http.HttpResponseStatus.FORBIDDEN);
+            webkit.httpResponse.sendText("");
+            return false;
         }
         return true;
     }
@@ -167,69 +181,77 @@ public class AuthFilter implements FilterAdapter {
     }
 
     /**
-     * Origin/Referer 与请求 Host 是否同源（忽略协议与端口、大小写不敏感）。
+     * 请求是否携带来源信息（Origin 或 Referer）。
+     */
+    private static boolean hasOriginHint(HttpRequest request) {
+        String origin = request.getHeader("origin");
+        if (origin != null && !origin.trim().isEmpty()) {
+            return true;
+        }
+        String referer = request.getHeader("referer");
+        return referer != null && !referer.trim().isEmpty();
+    }
+
+    /**
+     * 请求是否由浏览器脚本显式发起（XHR/fetch 才能设置该自定义头）。
+     */
+    private static boolean isAjaxRequest(HttpRequest request) {
+        String value = request.getHeader("x-requested-with");
+        return value != null && "XMLHttpRequest".equalsIgnoreCase(value.trim());
+    }
+
+    /**
+     * 【安全修复 J12】Origin/Referer 与请求来源是否**严格同源**（scheme + host + 端口 完全一致）。
+     * <p>
+     * 原实现忽略协议与端口（{@code hostOf} 只取主机名），于是
+     * {@code http://host:9090} 与 {@code http://host:8080}、http 与 https 都判定为同源，
+     * 并且当 Origin/Referer 同时缺失时直接返回 true（放行）。
+     * <p>
+     * 现在：
+     * <ul>
+     *   <li>存在 Origin（或退化为 Referer）时，必须与期望来源 scheme+host+port 完全一致；</li>
+     *   <li>{@code X-Forwarded-Proto/Host} 只在 {@code trusted.proxy=true} 时才被采纳；</li>
+     *   <li>两者都缺失时，仅接受携带 {@code X-Requested-With: XMLHttpRequest} 的请求
+     *       （跨站表单无法设置自定义请求头），否则拒绝。</li>
+     * </ul>
      */
     private boolean sameOrigin(HttpRequest request) {
+        String expected = NetUtil.expectedOrigin(request);
+        if (expected == null) {
+            return false;
+        }
         String source = request.getHeader("origin");
         if (source == null || source.trim().isEmpty()) {
             source = request.getHeader("referer");
         }
         if (source == null || source.trim().isEmpty() || "null".equalsIgnoreCase(source.trim())) {
-            return true;
+            return isAjaxRequest(request);
         }
-        String requestHost = hostOf("http://" + String.valueOf(request.getHeader("host")));
-        String sourceHost = hostOf(source);
-        return requestHost != null && requestHost.equals(sourceHost);
+        String sourceOrigin = NetUtil.normalizeOrigin(source);
+        return sourceOrigin != null && sourceOrigin.equals(expected);
     }
 
     /**
-     * 取 URL 中的 host（去掉协议、端口、路径，统一小写）。
-     */
-    private static String hostOf(String url) {
-        if (url == null || url.trim().isEmpty() || "null".equals(url.trim())) {
-            return null;
-        }
-        try {
-            String host = URI.create(url.trim()).getHost();
-            if (host != null) {
-                return host.toLowerCase();
-            }
-        } catch (Exception ignored) {
-        }
-        String s = url.trim();
-        int idx = s.indexOf("://");
-        if (idx >= 0) {
-            s = s.substring(idx + 3);
-        }
-        int slash = s.indexOf('/');
-        if (slash >= 0) {
-            s = s.substring(0, slash);
-        }
-        int colon = s.lastIndexOf(':');
-        if (colon > 0 && s.indexOf(']') < colon) {
-            s = s.substring(0, colon);
-        }
-        return s.isEmpty() ? null : s.toLowerCase();
-    }
-
-    /**
-     * 【安全修复】CORS 白名单。配置项 cors.allowedOrigins 为逗号分隔的完整来源
-     * （例如 https://proxy.example.com）；未配置时只允许与请求 Host 同源的来源。
+     * 【安全修复 J12】CORS 白名单。配置项 cors.allowedOrigins 为逗号分隔的完整来源
+     * （例如 https://proxy.example.com，必须带协议前缀）；未配置时只允许与请求自身来源
+     * （scheme+host+port）完全一致的 Origin，不再按主机名宽松匹配。
      */
     private boolean allowedOrigin(String origin, HttpRequest request) {
+        String normalized = NetUtil.normalizeOrigin(origin);
+        if (normalized == null) {
+            return false;
+        }
         String configured = PropUtil.getInstance().get("cors.allowedOrigins", "");
         if (configured != null && configured.trim().length() > 0) {
-            String target = origin.trim().toLowerCase();
             for (String item : configured.split(",")) {
-                if (item.trim().toLowerCase().equals(target)) {
+                if (normalized.equals(NetUtil.normalizeOrigin(item))) {
                     return true;
                 }
             }
             return false;
         }
-        String requestHost = hostOf("http://" + String.valueOf(request.getHeader("host")));
-        String originHost = hostOf(origin);
-        return requestHost != null && requestHost.equals(originHost);
+        String expected = NetUtil.expectedOrigin(request);
+        return expected != null && expected.equals(normalized);
     }
 
     /**

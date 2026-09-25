@@ -90,24 +90,24 @@
 ### 1. Golang 控制台运行期回归（真实启动 + HTTP 请求）
 | 用例 | 期望 | 实测 |
 | --- | --- | --- |
-| `GET /` | 302 → `/static/login.html`，种下会话 Cookie | ✅ 302 + `HttpOnly; SameSite=Strict` |
-| `GET /server/info` 无令牌 | 401 | ✅ 401 |
-| `GET /server/info` 错误令牌 | 401 | ✅ 401 |
-| `GET /server/info` 正确令牌 | 200 `[]` | ✅ 200 |
-| `POST /server/proxy`（`Origin: https://evil.example`） | 403 | ✅ 403 跨站请求已被拒绝 |
-| `POST /server/proxy`（`Sec-Fetch-Site: cross-site`） | 403 | ✅ 403 |
-| `POST /server/proxy` 非法服务器地址 | 业务错误 | ✅ `穿透服务器地址不合法` |
-| `POST /server/proxy` 正常 | 添加成功 | ✅ 200 添加成功 |
-| `POST /server/stop` / `/server/batchStop` | 停止成功 | ✅ 200 已停止 1 条隧道 |
-| `POST /console/config/import`（JSON 对象 / 裸数组 / 表单） | 全部支持 | ✅ 三种格式均导入成功，非法条目逐条报错 |
-| `GET /console/share/qr` | 200 PNG | ✅ 200 `image/png` |
-| 二维码内容 > 2000 字节 | 明确报错 | ✅ 413 `内容过长（2500 字节）…` |
-| `GET /static/web.go` | 404（不再泄漏源码） | ✅ 404 |
-| `GET /static/../web.go` | 404 | ✅ 404 |
-| WebSocket 跨站 / 无令牌 / 同源+令牌 | 403 / 401 / 101 | ✅ 403 / 401 / **101 并收到实时日志** |
-| `GET /api.js` | `application/javascript` | ✅（配合 `nosniff` 可被正常执行） |
-| `HEAD /` | 200（兼容客户端存活探测） | ✅ 200 |
-| 安全响应头 | CSP 等存在 | ✅ CSP/COOP/CORP/nosniff/Referrer-Policy |
+| `GET /` | 302 → `/static/login.html`，种下会话 Cookie | [x] 302 + `HttpOnly; SameSite=Strict` |
+| `GET /server/info` 无令牌 | 401 | [x] 401 |
+| `GET /server/info` 错误令牌 | 401 | [x] 401 |
+| `GET /server/info` 正确令牌 | 200 `[]` | [x] 200 |
+| `POST /server/proxy`（`Origin: https://evil.example`） | 403 | [x] 403 跨站请求已被拒绝 |
+| `POST /server/proxy`（`Sec-Fetch-Site: cross-site`） | 403 | [x] 403 |
+| `POST /server/proxy` 非法服务器地址 | 业务错误 | [x] `穿透服务器地址不合法` |
+| `POST /server/proxy` 正常 | 添加成功 | [x] 200 添加成功 |
+| `POST /server/stop` / `/server/batchStop` | 停止成功 | [x] 200 已停止 1 条隧道 |
+| `POST /console/config/import`（JSON 对象 / 裸数组 / 表单） | 全部支持 | [x] 三种格式均导入成功，非法条目逐条报错 |
+| `GET /console/share/qr` | 200 PNG | [x] 200 `image/png` |
+| 二维码内容 > 2000 字节 | 明确报错 | [x] 413 `内容过长（2500 字节）…` |
+| `GET /static/web.go` | 404（不再泄漏源码） | [x] 404 |
+| `GET /static/../web.go` | 404 | [x] 404 |
+| WebSocket 跨站 / 无令牌 / 同源+令牌 | 403 / 401 / 101 | [x] 403 / 401 / **101 并收到实时日志** |
+| `GET /api.js` | `application/javascript` | [x]（配合 `nosniff` 可被正常执行） |
+| `HEAD /` | 200（兼容客户端存活探测） | [x] 200 |
+| 安全响应头 | CSP 等存在 | [x] CSP/COOP/CORP/nosniff/Referrer-Policy |
 
 ### 2. 静态检查
 - `go vet ./...` 通过；`go build ./...` 通过（Go 1.26）。

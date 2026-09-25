@@ -28,6 +28,14 @@ public class PhotoController {
     private static final String PHOTO_PATH = ConstConfig.PATH + "photo";
 
     /**
+     * 【安全修复 J14】合法的「时间桶」目录名白名单。
+     * 图片目录由节点按 {@code yyyy-MM-dd} 命名（见 PhotoQueue），因此只接受
+     * 该格式或纯数字（≤32位），其余一律拒绝——绝不能把 URL 解码后的任意路径拼进 Location。
+     */
+    private static final java.util.regex.Pattern TIME_BUCKET =
+            java.util.regex.Pattern.compile("^[0-9]{1,32}$|^[0-9]{4}-[0-9]{2}-[0-9]{2}$");
+
+    /**
      * 【安全修复】把调用方提供的相对路径安全地解析到图片根目录内。
      * 拒绝：空值、NUL、绝对路径、盘符、协议前缀、"." / ".." / 空路径段，
      * 并在规范化后再次确认结果仍位于根目录之下（防目录穿越与符号链接逃逸）。
@@ -111,6 +119,11 @@ public class PhotoController {
         return data;
     }
 
+    /**
+     * 【安全修复 J6】原实现缺少 @CheckApi：任何人可匿名枚举图片目录清单。
+     * token 走查询串（节点端既有契约，见 HookCheckApi），模板链接已同步带上 token。
+     */
+    @CheckApi
     @GET("/photoList")
     public void photoList(HttpRequest request, HttpResponse response) {
         try {
@@ -124,6 +137,10 @@ public class PhotoController {
         }
     }
 
+    /**
+     * 【安全修复 J6】原实现缺少 @CheckApi：任何人可匿名枚举某个时间桶下的图片文件名。
+     */
+    @CheckApi
     @GET("/photo/{time}")
     public void photo(String time, HttpRequest request, HttpResponse response) {
         try {
@@ -164,9 +181,12 @@ public class PhotoController {
      * 【安全修复】原实现直接把 {path} 拼到图片目录后交给 setDownloadFile，
      * 形如 ../../etc/passwd 的路径可读取任意文件；同时缺乏任何鉴权。
      * 现在路径被严格限制在图片根目录内。
-     * 说明：该接口未加 @CheckApi，因为 photoDetailList.ftl 以 &lt;img src&gt; 引用它，
-     * 浏览器不会带 token；模板侧如需鉴权请改造成带 token 的下载入口。
+     * 【安全修复 J6】补上 @CheckApi：该接口能下载图片根目录内的任意文件，不能匿名开放。
+     * 由于 photoDetailList.ftl 以 &lt;img src&gt; 引用它（浏览器无法附加自定义请求头），
+     * 因此按节点端既有契约允许 token 走查询参数（HookCheckApi 读取 request.query("token")），
+     * 模板已同步在 src 中带上 token；节点响应统一带 Referrer-Policy: no-referrer，避免 Referer 泄露 token。
      */
+    @CheckApi
     @GET("/photoDetail/{path}")
     public void photoDetail(String path, HttpRequest request, HttpResponse response) {
         File file = resolveInPhotoDir(path);
@@ -196,8 +216,23 @@ public class PhotoController {
         } catch (Exception e) {
             log.error("删除图片失败: {}", e.getMessage());
         }
-        String first = path.replace('\\', '/').split("/")[0];
-        response.redirect("/photo/" + first);
+        // 【安全修复 J14】原实现把 URL 解码后的 {path} 第一段直接拼进 Location，
+        // 形如 %0d%0a 的输入可以污染 Location 响应头（响应拆分/重定向伪造）。
+        // 现在只允许跳转到「时间桶」白名单里的目录，其余一律回到图片根列表。
+        String normalized = path == null ? "" : path.replace('\\', '/');
+        String first = "";
+        int slash = normalized.indexOf('/');
+        if (slash >= 0) {
+            first = normalized.substring(0, slash);
+        } else {
+            first = normalized;
+        }
+        if (TIME_BUCKET.matcher(first).matches()) {
+            response.redirect("/photo/" + first);
+        } else {
+            log.warn("photoRemove 的跳转目标不在时间桶白名单内，已回落到 /photoList");
+            response.redirect("/photoList");
+        }
     }
 
 }

@@ -17,6 +17,8 @@ import okhttp3.RequestBody;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -95,18 +97,44 @@ public class HttpService {
         WebConfig bean = IocUtil.getBean(WebConfig.class);
         String adminAddress = bean.getAdminAddress();
         try {
+            // 【安全修复 J11】服务端 /statistics/add 已从匿名写入改为要求集群凭据。
+            // 这里按「已注册节点优先用集群 token，否则回退到共享注册密钥」的策略携带凭据，
+            // 保证 notReg=true（不注册）的节点也能继续上报统计。
+            StringBuilder url = new StringBuilder(adminAddress).append("/statistics/add");
+            String token = CostConfig.VER_TOKEN == null ? "" : CostConfig.VER_TOKEN.trim();
+            String secret = bean.getRegSecret() == null ? "" : bean.getRegSecret().trim();
+            boolean first = true;
+            if (!token.isEmpty()) {
+                url.append(first ? '?' : '&').append("token=").append(URLEncoder.encode(token, StandardCharsets.UTF_8));
+                first = false;
+            }
+            if (!secret.isEmpty()) {
+                url.append(first ? '?' : '&').append("secret=").append(URLEncoder.encode(secret, StandardCharsets.UTF_8));
+                first = false;
+            }
             RequestBody requestBody = RequestBody.create(
                     MediaType.parse("application/json; charset=utf-8"),
                     WebConstConfig.JSON.writeValueAsBytes(statistics)
             );
             okhttp3.Request request = new okhttp3.Request.Builder()
-                    .url(adminAddress + "/statistics/add")
+                    .url(url.toString())
                     .post(requestBody)
                     .build();
             String string = okHttpClient.newCall(request).execute().body().string();
-            log.info("statistics：{}", string);
+            // 【安全修复】不回显完整响应，避免把服务端内部信息写进节点日志
+            log.info("statistics 上报完成，code={}", responseCode(string));
         } catch (Exception e) {
             log.info("statistics：{}", ExceptionUtil.getMessage(e));
+        }
+    }
+
+    /** 只提取响应中的 code 字段，避免把响应体（可能含提示信息）整体写日志。 */
+    private static String responseCode(String body) {
+        try {
+            JsonNode node = WebConstConfig.JSON.readTree(body);
+            return node == null || node.get("code") == null ? "?" : node.get("code").asText();
+        } catch (Exception e) {
+            return "?";
         }
     }
 

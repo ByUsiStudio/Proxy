@@ -140,11 +140,12 @@
 
         /* ---------- 会话 Cookie ----------
          * 【安全修复】旧实现把「账号|明文密码」写进 cookie（authUser=...），
-         * 明文密码可被任意脚本读取并随请求发送。现在只保存服务端下发的不透明会话 ID。 */
+         * 明文密码可被任意脚本读取并随请求发送。
+         * 【安全修复 J9】user_session 现在由**服务端**在 /user/login、/user/reg
+         * 的响应里用 Set-Cookie 下发（Path=/; HttpOnly; SameSite=Lax，HTTPS 时再加 Secure）。
+         * JS 通过 document.cookie 写入的 Cookie 永远不可能是 HttpOnly，
+         * 因此这里不再由前端设置会话 Cookie，只负责清理历史遗留的明文凭据 Cookie。 */
         function saveSession(result) {
-            if (result && result.session) {
-                document.cookie = 'user_session=' + encodeURIComponent(result.session) + '; path=/; max-age=43200; samesite=lax';
-            }
             // 清理历史版本遗留的明文凭据 cookie
             document.cookie = 'authUser=; path=/; max-age=0';
         }

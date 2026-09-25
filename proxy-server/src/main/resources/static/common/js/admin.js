@@ -564,7 +564,15 @@
    * 然后以 DOM 节点替换的方式挂载，任何脚本或事件属性都不会被激活，
    * 相当于把「服务端渲染的表格」当成结构化数据使用。
    * ------------------------------------------------------------------ */
+  /**
+   * 局部刷新：重新请求当前页面，并用返回的片段替换指定节点。
+   *
+   * @param {string} url 当前页面的 URL（含筛选条件）
+   * @param {string[]|Object} regions 需要替换的选择器列表（数组，或「选择器 → 任意值」的对象）
+   * @returns {Promise<number>} 实际替换的节点数
+   */
   Admin.refreshRegions = function (url, regions) {
+    var selectors = Array.isArray(regions) ? regions : Object.keys(regions || {});
     return fetch(url, {
       method: 'GET',
       credentials: 'same-origin',
@@ -578,7 +586,7 @@
     }).then(function (html) {
       var doc = new DOMParser().parseFromString(html, 'text/html');
       var replaced = 0;
-      Object.keys(regions || {}).forEach(function (selector) {
+      selectors.forEach(function (selector) {
         var incoming = doc.querySelector(selector);
         var current = document.querySelector(selector);
         if (!incoming || !current || !current.parentNode) { return; }

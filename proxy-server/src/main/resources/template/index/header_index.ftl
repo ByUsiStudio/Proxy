@@ -42,18 +42,24 @@
 </div>
 
 <script>
-    //清除所有cookie函数
-    function clearAllCookie() {
-        var keys = document.cookie.match(/[^ =;]+(?=\=)/g);
-        if(keys) {
-            for(var i = keys.length; i--;)
-                document.cookie = keys[i] + '=0;expires=' + new Date(0).toUTCString()
-        }
+    /*
+     * 【安全修复 J9】登出必须让**服务端会话失效**。
+     * 原实现只是用 JS 删掉浏览器 Cookie，服务端 UserSessionStore 里的会话仍然有效
+     * （空闲 12 小时过期），被窃取的 Cookie 在登出后依然能用。
+     * 现在先 POST /user/logout（服务端作废会话 + 下发 Max-Age=0 清 Cookie），
+     * 请求失败也照样跳转，保证登出按钮始终可用。
+     */
+    function clearLegacyAuthCookie() {
+        // 仅清理历史版本遗留的明文凭据 Cookie（authUser=账号|密码）
+        document.cookie = 'authUser=; path=/; max-age=0';
     }
     $(function () {
         $("#login_out").click(function () {
-            clearAllCookie()
-            location.reload()
+            function finish() {
+                clearLegacyAuthCookie();
+                location.href = '/';
+            }
+            $.post('/user/logout').always(finish);
         })
     })
 </script>

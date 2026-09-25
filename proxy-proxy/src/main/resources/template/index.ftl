@@ -1,11 +1,16 @@
 <#include "/header.ftl">
-<script type="text/javascript" src="/admin/js/echarts.min.js"></script>
 <#--监控页面-->
+<#--
+  【安全修复 J5】FreeMarker 默认不转义：所有进入 HTML 文本/双引号属性的插值必须显式 ?html，
+  进入查询串的必须 ?url，进入 <script> 的必须用 ?js_string（数字用 ?c）。
+  审计确认 FreeMarker 2.3.31 的 ?html 会转义 < > & "，但不转义单引号，
+  因此所有插值属性一律使用双引号包裹。
+-->
 <div style="padding: 1rem">
 
     <div class="mdui-card">
         <div class="mdui-card-actions mdui-card-actions-stacked">
-            <button class="mdui-btn mdui-ripple">连接使用数：${statisticsSize}</button>
+            <button class="mdui-btn mdui-ripple">连接使用数：${statisticsSize?c}</button>
         </div>
         <div class="mdui-card-actions mdui-card-actions-stacked" id="chart" style="height: 800px;width: 100%">
         </div>
@@ -30,17 +35,17 @@
                             <#if app??>
                                 <tr>
                                     <td>
-                                        <#if app.username??> ${app.username}<#else>未知</#if>
+                                        <#if app.username??> ${app.username?html}<#else>未知</#if>
                                     </td>
-                                    <td>${app.domain}</td>
+                                    <td>${app.domain?html}</td>
                                     <td>
-                                        <#if app.customDomain??> ${app.customDomain}<#else>未自定义</#if>
+                                        <#if app.customDomain??> ${app.customDomain?html}<#else>未自定义</#if>
                                     </td>
-                                    <td><a href="//${app.domain}.${host}" target="_blank">访问${app.domain}</a></td>
-                                    <td>${app.ip}</td>
-                                    <td>${app.date}</td>
-                                    <td>${app.port}</td>
-                                    <td><a href="/offline?domain=${app.domain}&token=${token}">强制下线</a></td>
+                                    <td><a href="//${app.domain?html}.${host?html}" target="_blank">访问${app.domain?html}</a></td>
+                                    <td>${app.ip?html}</td>
+                                    <td>${app.date?html}</td>
+                                    <td>${app.port?html}</td>
+                                    <td><a href="/offline?domain=${app.domain?url}&token=${token?url}">强制下线</a></td>
                                 </tr>
                             </#if>
                         </#list>
@@ -63,9 +68,11 @@
     var app = {};
 
     var option;
-    const dateList = [${flowType}]
-    const flowSend = [${flowSend}]
-    const flowReceive = [${flowReceive}]
+    /* 【安全修复 J5】服务端只传结构化数据：日期用 ?js_string 转义成 JS 字符串字面量，
+       数值用 ?c 保证只输出数字，任何服务端数据都不可能越出脚本上下文。 */
+    const dateList = [<#if flowType??><#list flowType as item>"${item?js_string}"<#sep>,</#list></#if>]
+    const flowSend = [<#if flowSend??><#list flowSend as item>${(item!0)?c}<#sep>,</#list></#if>]
+    const flowReceive = [<#if flowReceive??><#list flowReceive as item>${(item!0)?c}<#sep>,</#list></#if>]
     option = {
         // Make gradient line here
         visualMap: [

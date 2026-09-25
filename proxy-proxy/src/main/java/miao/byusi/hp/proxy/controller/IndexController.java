@@ -21,7 +21,9 @@ import org.slf4j.LoggerFactory;
 import java.io.File;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -48,25 +50,22 @@ public class IndexController {
         data.put("host", webConfig.getUserHost());
         data.put("statisticsSize", HpServerHandler.CURRENT_STATUS.size());
         data.put("statisticsData", HpServerHandler.CURRENT_STATUS);
-        StringBuilder flowType = new StringBuilder();
-        StringBuilder flowConnectNum = new StringBuilder();
-        StringBuilder flowReceive = new StringBuilder();
-        StringBuilder flowSend = new StringBuilder();
-        StringBuilder flowPackNum = new StringBuilder();
+        // 【安全修复 J5】原实现把图表数据手工拼成「JS 代码字符串」后直接插进 <script> 里
+        // （例如 flowType="2024-01-01","2024-01-02"），模板无法安全转义，属于脚本上下文注入。
+        // 现在只向模板传递**结构化数据**（日期是字符串列表，其余是数字列表），
+        // 由模板用 ?js_string / ?c 分别转义。
+        List<String> flowType = new ArrayList<>();
+        List<Long> flowConnectNum = new ArrayList<>();
+        List<Long> flowReceive = new ArrayList<>();
+        List<Long> flowSend = new ArrayList<>();
+        List<Long> flowPackNum = new ArrayList<>();
         for (int i = 0; i < GlobalStat.STATS.size(); i++) {
             GlobalStat.Stat stat = GlobalStat.STATS.get(i);
-            flowType.append("\"").append(stat.getDate()).append("\"");
-            flowConnectNum.append(stat.getConnectNum());
-            flowReceive.append(stat.getReceive() / 1024);
-            flowSend.append(stat.getSend() / 1024);
-            flowPackNum.append(stat.getPackNum());
-            if (i != GlobalStat.STATS.size() - 1) {
-                flowType.append(",");
-                flowConnectNum.append(",");
-                flowReceive.append(",");
-                flowSend.append(",");
-                flowPackNum.append(",");
-            }
+            flowType.add(stat.getDate() == null ? "" : stat.getDate());
+            flowConnectNum.add(stat.getConnectNum() == null ? 0L : stat.getConnectNum());
+            flowReceive.add((stat.getReceive() == null ? 0L : stat.getReceive()) / 1024);
+            flowSend.add((stat.getSend() == null ? 0L : stat.getSend()) / 1024);
+            flowPackNum.add(stat.getPackNum() == null ? 0L : stat.getPackNum());
         }
         data.put("flowType", flowType);
         data.put("flowConnectNum", flowConnectNum);

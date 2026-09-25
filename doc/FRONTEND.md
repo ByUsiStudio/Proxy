@@ -11,7 +11,19 @@
 
 ## 一、统一设计约定
 
-三端共用同一套设计语言，避免「同一产品三种观感」：
+三端共用同一套设计语言，避免「同一产品三种观感」。
+设计令牌（颜色 / 圆角 / 间距 / 字号）在三个样式表中**取值完全一致**，
+并已通过脚本核对：
+
+| 令牌 | `app.css`（控制台） | `admin.css`（后台） | `index/css/style.css`（落地页） |
+| --- | --- | --- | --- |
+| `--brand-500` | `#2f6bff` | `#2f6bff` | `#2f6bff` |
+| `--success-500` | `#10b981` | `#10b981` | `#10b981` |
+| `--warning-500` | `#f59e0b` | `#f59e0b` | `#f59e0b` |
+| `--danger-500` | `#ef4444` | `#ef4444` | `#ef4444` |
+| `--r-lg` / `--s-4` / `--fs-md` | `1rem` / `1rem` / `0.9375rem` | 同左 | `1rem` / `1rem`（落地页字号用 `rem` 直接声明） |
+
+> 深色主题下 `--brand-500` 统一提升为 `#5b88ff` 以保证暗底对比度（控制台与后台）。
 
 | 维度 | 约定 |
 | --- | --- |
@@ -127,6 +139,11 @@ node tools/check-frontend.mjs
 # 管理后台模板标签平衡
 powershell -NoProfile -ExecutionPolicy Bypass -File check-tags.ps1
 
+# FreeMarker 模板语法（只解析不渲染；编译期发现不了模板语法错误）
+FM="$USERPROFILE/.m2/repository/org/freemarker/freemarker/2.3.31/freemarker-2.3.31.jar"
+java -cp "$FM" tools/template-check/TemplateCheck.java \
+     proxy-server/src/main/resources/template proxy-proxy/src/main/resources/template
+
 # 纯前端二维码编码器：与 skip2/go-qrcode 逐模块比对（见 tools/README.md）
 node tools/qr-verify/compare.mjs --gen
 ( cd tools/qr-verify && go build -o qrverify.exe . && ./qrverify.exe texts.txt > ref.txt )
@@ -143,6 +160,7 @@ mvn -o -DskipTests compile
 | --- | --- |
 | `tools/check-frontend.mjs` | 全部通过：8 个页面脚本共 164 个 DOM id 引用全部存在；Go 控制台 47 个 / 后台 51 个图标名全部有效；后台模板引用的 26 个 `Admin.*` API 全部存在；危险 sink 仅剩「内置图标常量」用法；无外部 CDN 引用；后台模板无未转义插值 |
 | `check-tags.ps1` | 12 个后台模板全部 OK |
+| `tools/template-check` | 23 个 FreeMarker 模板全部解析通过（含本轮重写的 `admin/log.ftl`、`admin/config.ftl`） |
 | `tools/qr-verify` | 35/35 一致（其中 4 项仅掩码选择不同、矩阵等价），覆盖版本 1-10 容量边界与 UTF-8 多字节内容 |
 | `go vet ./...` / `go build ./...` | 通过 |
 | `mvn -o -DskipTests compile` | 通过 |

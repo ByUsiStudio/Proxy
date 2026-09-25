@@ -446,10 +446,7 @@
         }
 
         function refreshList() {
-            return Admin.refreshRegions(currentUrl(), {
-                '#configRows': true,
-                '#box': true
-            }).then(function () {
+            return Admin.refreshRegions(currentUrl(), ['#configRows', '#box']).then(function () {
                 Admin.bindSortableTables();
                 Admin.initPagers();
                 Admin.bindTableFilters();

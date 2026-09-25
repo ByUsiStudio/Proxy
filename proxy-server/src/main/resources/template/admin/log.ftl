@@ -334,10 +334,7 @@
          * 刷新后会重新绑定表头排序与分页。
          */
         function refreshList() {
-            return Admin.refreshRegions(currentUrl(), {
-                '#logRows': true,
-                '#box': true
-            }).then(function () {
+            return Admin.refreshRegions(currentUrl(), ['#logRows', '#box']).then(function () {
                 Admin.bindSortableTables();
                 Admin.initPagers();
                 Admin.bindTableFilters();

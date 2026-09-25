@@ -105,27 +105,24 @@ public class PhotoPngMessageHandler extends PhotoMessageHandler{
     }
 
     public byte[] change() {
-        byte[] b = new byte[photo.size()];
-        for (int i = 0; i < photo.size(); i++) {
-            b[i] = photo.get(i);
-        }
-        photo.clear();
-        return b;
+        // 【安全修复 J8】缓冲已由父类用 ByteArrayOutputStream 实现（不再装箱，且有 4MB 硬上限）
+        return takePhotoBytes();
     }
 
     public void add(byte[] bytes) {
-        for (byte aByte : bytes) {
-            photo.add(aByte);
-        }
+        addPhotoBytes(bytes);
     }
-
-    private final List<Byte> photo = new ArrayList<>();
 
     private boolean flag = false;
 
     @Override
     public boolean checkAndSavePhoto(byte[] bytes) {
         try {
+            if (isPhotoDiscarded()) {
+                // 上一张图已因超限被丢弃：复位状态，等待下一张
+                flag = false;
+                return false;
+            }
             int pngStart = isPngStart(bytes);
             int pngEnd = isPngEnd(bytes);
             //一个数据包搞定的情况
@@ -133,7 +130,9 @@ public class PhotoPngMessageHandler extends PhotoMessageHandler{
                 byte[] data = new byte[pngEnd - pngStart];
                 System.arraycopy(bytes, pngStart, data, 0, data.length);
                 add(data);
-                save(new Photo(username,domain,Photo.PhotoType.PNG, change()));
+                if (!isPhotoDiscarded()) {
+                    save(new Photo(username,domain,Photo.PhotoType.PNG, change()));
+                }
             } else {
                 if (pngStart >= 0 && pngEnd == -1) {
                     flag = true;
@@ -142,17 +141,18 @@ public class PhotoPngMessageHandler extends PhotoMessageHandler{
                     add(data);
                 } else if (flag && pngStart == -1 && pngEnd == -1) {
                     add(bytes);
-                    //大图就直接清空最大10MB的图片
-                    if (photo.size()>1000*1024*10){
-                        photo.clear();
-                        flag=false;
+                    // 【安全修复 J8】超过上限时父类已丢弃缓冲，这里同步复位标志（原实现是 10MB 才清空）
+                    if (isPhotoDiscarded()) {
+                        flag = false;
                     }
                 } else if (flag && pngStart == -1 && pngEnd >= 0) {
                     byte[] data = new byte[pngEnd];
                     System.arraycopy(bytes, 0, data, 0, data.length);
                     add(data);
                     flag = false;
-                    save(new Photo(username,domain,Photo.PhotoType.PNG, change()));
+                    if (!isPhotoDiscarded()) {
+                        save(new Photo(username,domain,Photo.PhotoType.PNG, change()));
+                    }
                 }else {
                     return false;
                 }
@@ -160,6 +160,9 @@ public class PhotoPngMessageHandler extends PhotoMessageHandler{
         } catch (Exception e) {
             log.error("PNG图片处理异常", e);
             return false;
+        } finally {
+            // 一次调用结束后复位丢弃标记，避免影响下一张图片
+            resetPhotoDiscarded();
         }
         return true;
     }

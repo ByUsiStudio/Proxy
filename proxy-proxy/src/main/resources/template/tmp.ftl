@@ -147,7 +147,8 @@
     <p>Proxy内网穿透</p>
     <div class="buttons-con">
         <div class="action-link-wrap">
-            <a href="${adminAddress}" target="_blank" class="link-button">返回首页</a>
+            <#-- 【安全修复 J5】adminAddress 来自服务端配置，同样必须 ?html 转义后才能放进双引号属性 -->
+            <a href="${adminAddress?html}" target="_blank" class="link-button">返回首页</a>
         </div>
     </div>
 </div>

@@ -45,8 +45,10 @@ public final class UserSessionStore {
         }
         cleanExpired();
         if (SESSIONS.size() >= MAX_SESSIONS) {
-            // 极端情况下直接清空，保证不会无限增长
-            SESSIONS.clear();
+            // 【安全修复 J9】原实现 SESSIONS.clear() 是一次「全站登出」原语：
+            // 任何调用方只要把会话表刷到上限，就能把所有在线用户踢下线。
+            // 现在改为按空闲时间淘汰最旧的部分会话，仅淘汰到刚好低于上限。
+            evictOldest(SESSIONS.size() - MAX_SESSIONS + 1);
         }
         byte[] bytes = new byte[32];
         RANDOM.nextBytes(bytes);
@@ -57,6 +59,21 @@ public final class UserSessionStore {
         String id = sb.toString();
         SESSIONS.put(id, new Entry(username.trim(), System.currentTimeMillis()));
         return id;
+    }
+
+    /**
+     * 【安全修复 J9】淘汰最久未活动的 {@code count} 个会话（不再整体清空）。
+     */
+    private static void evictOldest(int count) {
+        if (count <= 0 || SESSIONS.isEmpty()) {
+            return;
+        }
+        SESSIONS.entrySet().stream()
+                .sorted((a, b) -> Long.compare(a.getValue().lastActive, b.getValue().lastActive))
+                .limit(count)
+                .map(Map.Entry::getKey)
+                .collect(java.util.stream.Collectors.toList())
+                .forEach(SESSIONS::remove);
     }
 
     /**

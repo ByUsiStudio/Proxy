@@ -56,7 +56,24 @@ node tools/qr-verify/compare.mjs
 
 > 首轮实测结果：35/35 一致，其中 4 项仅掩码选择不同、矩阵等价。
 
-## 3. `../check-tags.ps1` —— 管理后台模板标签平衡
+## 3. `template-check/` —— FreeMarker 模板语法校验
+
+HServer 只在**真正渲染页面时**才解析 FreeMarker 模板，因此指令拼写错误、
+`<#if>` 未闭合、`<#include>` 路径不对等问题在编译期发现不了，只有用户打开页面才 500。
+本工具用 FreeMarker 官方解析器把模板逐个解析一遍（只解析、不渲染，无需数据模型）。
+
+```bash
+FM="$USERPROFILE/.m2/repository/org/freemarker/freemarker/2.3.31/freemarker-2.3.31.jar"
+java -cp "$FM" tools/template-check/TemplateCheck.java \
+     proxy-server/src/main/resources/template \
+     proxy-proxy/src/main/resources/template
+```
+
+退出码：`0` 全部解析通过；`1` 存在语法错误（会打印文件名与错误摘要）。
+
+> 首轮实测结果：23 个模板全部 OK（含本轮重写的 `admin/log.ftl`、`admin/config.ftl`）。
+
+## 4. `../check-tags.ps1` —— 管理后台模板标签平衡
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File check-tags.ps1
@@ -64,3 +81,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File check-tags.ps1
 
 剥离 FreeMarker 指令后用栈匹配所有非空元素的开闭标签，用于发现
 重构模板时常见的漏闭合标签。
+
+## 5. 建议的执行顺序
+
+```bash
+node tools/check-frontend.mjs                 # 静态一致性与危险 sink
+powershell -File check-tags.ps1               # 标签平衡
+java -cp "$FM" tools/template-check/TemplateCheck.java <模板目录...>   # 模板语法
+node tools/qr-verify/compare.mjs              # 二维码编码器回归
+```
+

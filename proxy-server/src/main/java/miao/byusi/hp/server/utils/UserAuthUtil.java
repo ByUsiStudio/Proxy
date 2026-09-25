@@ -25,25 +25,35 @@ public final class UserAuthUtil {
      * @return true 表示凭据与该用户一致，允许操作
      */
     public static boolean checkOwnership(UserService userService, String userId, String username, String password) {
+        return authenticate(userService, userId, username, password) != null;
+    }
+
+    /**
+     * 【安全修复 J3】与 {@link #checkOwnership} 同一套校验逻辑，但返回通过校验的用户实体，
+     * 便于控制器继续做「目标资源是否属于该用户」的归属比对（例如删除配置前校验 config.userId）。
+     *
+     * @return 校验通过返回用户实体；否则返回 null
+     */
+    public static UserEntity authenticate(UserService userService, String userId, String username, String password) {
         if (userService == null || SafeInputUtil.isBlank(username) || SafeInputUtil.isBlank(password)) {
-            return false;
+            return null;
         }
         String name = username.trim();
         UserEntity user = SafeInputUtil.isBlank(userId) ? userService.getUser(name) : userService.getUserById(userId);
         if (user == null) {
-            return false;
+            return null;
         }
         // userId 与 username 必须指向同一个用户，防止拿自己的凭据去操作别人的ID
         if (!SafeInputUtil.isBlank(userId) && !userId.trim().equals(user.getId())) {
-            return false;
+            return null;
         }
         if (!name.equals(user.getUsername())) {
-            return false;
+            return null;
         }
         // 被封禁账号、以及未初始化密码（init.sql 不再内置默认口令）的账号一律拒绝
         if (user.getType() == -1 || SafeInputUtil.isBlank(user.getPassword())) {
-            return false;
+            return null;
         }
-        return SafeInputUtil.safeEquals(user.getPassword(), password.trim());
+        return SafeInputUtil.safeEquals(user.getPassword(), password.trim()) ? user : null;
     }
 }
