@@ -1,73 +1,227 @@
-<!DOCTYPE HTML>
-<html lang="zh">
+<!DOCTYPE html>
+<html lang="zh-CN">
 <head>
-    <meta charset="utf-8"/>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <link rel="stylesheet" href="./css/style.css"/>
-    <script src="./js/script.js" defer></script>
-    <link rel="icon" href="favicon.ico" type="image/x-icon"/>
-    <title>Proxy穿透</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <meta name="referrer" content="no-referrer">
+  <meta name="description" content="Proxy 内网穿透：数据转发实现，无需公网 IP，支持 TCP/UDP 与 http/https/ws/wss，免费赠送二级域名，支持自定义域名与自有 SSL 证书。">
+  <meta name="keywords" content="内网穿透,端口映射,免费内网穿透,TCP转发,UDP转发,http代理,二级域名,远程办公,NAS,openwrt,docker">
+  <link rel="icon" href="favicon.ico" type="image/x-icon">
+  <link rel="stylesheet" href="./css/style.css">
+  <title>Proxy 穿透 · 免费稳定的内网穿透</title>
 </head>
 <body>
+  <a class="skip-link" href="#main">跳到主要内容</a>
+  <div class="page-glow" aria-hidden="true"></div>
+  <canvas id="canvas" aria-hidden="true"></canvas>
 
-<style>
-    .lja {
-        display: flex;
-        justify-content: right;
-    }
-    .lja div{
-        padding-left: 10px;
-    }
+  <header class="nav">
+    <a class="nav__brand" href="./index.html">
+      <span class="nav__mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+      </span>
+      <span>Proxy 穿透</span>
+    </a>
+    <nav class="nav__links" aria-label="页面导航">
+      <a class="nav__link" href="#features">功能特性</a>
+      <a class="nav__link" href="#start">快速开始</a>
+      <a class="nav__link" href="#notice">使用申明</a>
+      <a class="nav__link" href="#join">加入交流群</a>
+      <a class="nav__link" href="./teach/teach.html">KSWEB 教程</a>
+    </nav>
+    <span class="nav__spacer"></span>
+    <button type="button" class="icon-btn" id="themeToggle" aria-label="切换深色 / 浅色主题" title="切换主题">
+      <svg viewBox="0 0 24 24" id="themeIcon"><path d="M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10"/><path d="M12 1v3M12 20v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M1 12h3M20 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>
+    </button>
+    <a class="btn btn--primary btn--sm" href="#start">立即开始</a>
+  </header>
 
-    .lja a{
-        padding: 20px;
-        font-size:150%;
-        text-align:center;
-        background-color:#fff;
-        text-decoration: none;
-    }
-</style>
+  <main id="main">
+    <section class="hero wrap">
+      <span class="hero__badge">
+        <b>v16.0</b>
+        <span>Java 25 · Go 1.21 · 自定义 SSL 证书</span>
+      </span>
+      <h1 class="hero__title">把内网服务<br><em>稳定地带到公网</em></h1>
+      <p class="hero__sub">
+        采用数据转发实现，无需公网 IP、无需改动路由器。支持 TCP / UDP 全协议，
+        针对 http/https、ws/wss 做了大量优化，免费赠送二级域名，也支持自定义域名与自有 SSL 证书。
+      </p>
+      <div class="hero__actions">
+        <a class="btn btn--primary" href="#start">查看快速开始</a>
+        <a class="btn btn--ghost" href="https://gitee.com/byusi/proxy" target="_blank" rel="noopener noreferrer">浏览源码仓库</a>
+      </div>
 
-<canvas id="canvas"></canvas>
-<div class="mb">
-    <div class="icon"></div>
-    <h1 class="title">Proxy 穿透</h1>
-    <div class="lja">
-        <div><a href="#前言" style="width:25%;">前言</a></div>
-        <div><a href="#申明" style="width:25%;">申明</a>
+      <div class="hero__stats">
+        <div class="stat">
+          <div class="stat__value">TCP / UDP</div>
+          <div class="stat__label">全协议转发</div>
         </div>
-        <div><a href="#加入交流群" style="width:25%;border:0;">交流群</a>
+        <div class="stat">
+          <div class="stat__value">http / https</div>
+          <div class="stat__label">ws / wss 已优化</div>
         </div>
-        <div><a href="./teach/teach.html" style="width:24.6%;">KSWEB检查</a>
+        <div class="stat">
+          <div class="stat__value">免费二级域名</div>
+          <div class="stat__label">支持自定义域名</div>
         </div>
+        <div class="stat">
+          <div class="stat__value">全平台</div>
+          <div class="stat__label">电脑 · 手机 · NAS · Docker</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section wrap" id="features">
+      <h2 class="section__title">功能特性</h2>
+      <p class="section__desc">从个人调试到生产内网服务发布，一套客户端覆盖主流平台。</p>
+
+      <div class="grid">
+        <article class="card">
+          <span class="card__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 4h16v6H4zM4 14h16v6H4zM8 7h.01M8 17h.01"/></svg></span>
+          <h3>数据转发，稳定可靠</h3>
+          <p>只要能上网就能穿透，不依赖 NAT 类型，极端网络环境下依然保持连接与自动重连。</p>
+        </article>
+
+        <article class="card">
+          <span class="card__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18"/><path d="M3 12h18M12 3c2.5 2.5 2.5 15 0 18M12 3c-2.5 2.5-2.5 15 0 18"/></svg></span>
+          <h3>免费二级域名</h3>
+          <p>注册即可获得二级域名，直接对外发布网站与应用，无需备案域名也能快速联调。</p>
+        </article>
+
+        <article class="card">
+          <span class="card__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg></span>
+          <h3>自定义域名与证书</h3>
+          <p>绑定自己的域名，并可加载自有 SSL 证书，端到端加密，客户端与服务端都支持。</p>
+        </article>
+
+        <article class="card">
+          <span class="card__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M13 2 3 14h9l-1 8 10-12h-9z"/></svg></span>
+          <h3>固定端口映射</h3>
+          <p>随机分配或指定外网端口，数据库、SSH、游戏服务等非 HTTP 场景同样适用。</p>
+        </article>
+
+        <article class="card">
+          <span class="card__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M3 4h18v12H3zM8 20h8M12 16v4"/></svg></span>
+          <h3>多平台客户端</h3>
+          <p>提供 Java 与 Golang 两套实现，覆盖 Windows、Linux、Termux、安卓、OpenWrt、NAS 与 Docker。</p>
+        </article>
+
+        <article class="card">
+          <span class="card__icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 1-9 9 9 9 0 0 1-8.5-6M3 12a9 9 0 0 1 9-9 9 9 0 0 1 8.5 6"/><path d="M21 3v6h-6M3 21v-6h6"/></svg></span>
+          <h3>自动穿透配置</h3>
+          <p>把穿透配置保存到云端，客户端携带设备 ID 启动即自动创建隧道，设备重启免重复配置。</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="section wrap" id="start">
+      <h2 class="section__title">快速开始</h2>
+      <p class="section__desc">Termux 与 Linux 一条命令完成部署，其余平台下载对应客户端即可。</p>
+
+      <div class="steps">
+        <div class="step">
+          <span class="step__num" aria-hidden="true"></span>
+          <div>
+            <h3>一键安装客户端</h3>
+            <p>在 Termux 或 Linux 终端中执行下面的命令：</p>
+
+            <div class="tabs" role="tablist" aria-label="安装源">
+              <button type="button" class="tabs__item is-active" role="tab" data-tab="gitee" aria-selected="true">Gitee</button>
+              <button type="button" class="tabs__item" role="tab" data-tab="github" aria-selected="false">GitHub</button>
+            </div>
+
+            <div class="tab-panel" data-panel="gitee">
+              <div class="code" data-copy="bash -c &quot;$(curl -sSL https://gitee.com/byusi/proxy/raw/master/shell/install2.sh)&quot;">bash -c "$(curl -sSL https://gitee.com/byusi/proxy/raw/master/shell/install2.sh)"
+                <button type="button" class="code__copy" data-copy-btn>复制</button>
+              </div>
+            </div>
+            <div class="tab-panel" data-panel="github" hidden>
+              <div class="code" data-copy="bash -c &quot;$(curl -sSL https://raw.githubusercontent.com/ByUsiTeam/Proxy/master/shell/install2.sh)&quot;">bash -c "$(curl -sSL https://raw.githubusercontent.com/ByUsiTeam/Proxy/master/shell/install2.sh)"
+                <button type="button" class="code__copy" data-copy-btn>复制</button>
+              </div>
+            </div>
+            <p class="doc tip" style="margin-top: .75rem;">卸载：<code>bash -c "$(curl -sSL https://gitee.com/byusi/proxy/raw/master/shell/uninstall.sh)"</code></p>
+          </div>
+        </div>
+
+        <div class="step">
+          <span class="step__num" aria-hidden="true"></span>
+          <div>
+            <h3>启动客户端</h3>
+            <p>直接运行即可，本地控制台默认地址为 <code>http://127.0.0.1:10240/</code>：</p>
+            <div class="code" data-copy="proxy-client">proxy-client
+              <button type="button" class="code__copy" data-copy-btn>复制</button>
+            </div>
+            <p style="margin-top: .75rem;">如需随设备自动创建隧道，带上云端设备 ID 启动：</p>
+            <div class="code" data-copy="proxy-client -deviceId=你的设备ID">proxy-client -deviceId=你的设备ID
+              <button type="button" class="code__copy" data-copy-btn>复制</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="step">
+          <span class="step__num" aria-hidden="true"></span>
+          <div>
+            <h3>在控制台添加穿透</h3>
+            <p>
+              打开本地控制台登录后，点击「添加穿透」，填写内网 IP 与端口，选择穿透服务器、域名与外网端口，
+              保存即可通过生成的地址访问内网服务。支持批量停止、实时日志、流量统计与配置导出分享。
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section wrap" id="notice">
+      <h2 class="section__title">使用申明</h2>
+      <p class="section__desc">这是一个公益开源项目，请合理使用、不要滥用资源。</p>
+
+      <div class="notice">
+        <p>本项目是公益项目，服务器与带宽由作者自费维持，请勿恶意攻击或滥用资源，免费开源的项目真的不多。</p>
+        <p>软件下载安装后即可免费使用，客户端内没有任何广告；使用中遇到问题可以加入交流群咨询。</p>
+        <p>可应用于远程办公、远程联调、接口回调、公众号调试、本地微信开发、MySQL 与 TCP/UDP 端口转发等场景。</p>
+        <p>
+          <strong>禁止用途：</strong>搭建涉政治、色情、暴力、赌博、诈骗、影视侵权、<span class="danger">违反国家法律法规</span>
+          或给国家造成负面影响的站点。出现问题后果自负，本站概不负责，一经发现一律封号处理。
+        </p>
+      </div>
+    </section>
+
+    <section class="section wrap" id="join">
+      <div class="join">
+        <div>
+          <h2 class="section__title">加入交流群</h2>
+          <p class="section__desc">
+            扫码加入 QQ 群，或通过 Telegram 群聊反馈问题、交流使用经验。源码仓库欢迎提交 Issue 与 PR。
+          </p>
+          <ul class="list">
+            <li>官方 QQ 群：<strong>822726278</strong></li>
+            <li><a href="https://t.me/+1_rc1TbWydVkN2I1" target="_blank" rel="noopener noreferrer">Telegram 交流群</a></li>
+            <li><a href="https://gitee.com/byusi/proxy" target="_blank" rel="noopener noreferrer">Gitee 仓库</a> · <a href="https://github.com/ByUsiTeam/Proxy" target="_blank" rel="noopener noreferrer">GitHub 仓库</a></li>
+            <li>安卓客户端：<a href="https://gitee.com/byusi/proxy-client" target="_blank" rel="noopener noreferrer">ByUsi/Proxy-Client</a></li>
+          </ul>
+        </div>
+        <div class="qr">
+          <img src="./image/ewm.png" alt="官方交流群二维码" width="176" height="176" loading="lazy" decoding="async">
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="wrap footer__row">
+      <div>
+        Proxy 内网穿透 · 当前版本 <strong>16.0</strong> · 基于
+        <a href="https://gitee.com/HServer/hp" target="_blank" rel="noopener noreferrer">HServer / hp</a> 演进
+      </div>
+      <div>
+        网页开发：ice_xnt（群友） · 本页不含任何第三方追踪脚本
+      </div>
     </div>
-    <hr/>
-    <h2 id="前言">前言</h2>
-    <p>我们采用的是数据转发实现 稳定性可靠性是有保证的即便是极端的环境只要能上网就能实现穿透。我们支持TCP级别的所有协议，针对HTTP协议做了大量的优化工作，
-        可以实现 http/https ws/wss 协议。同时还免费赠送一个二级域名，不仅如此，我们还支持
-        自定义域名，支持本地配置https证书，同时我们传输协议使用proto协议，如果你是一个程序员开发者，可以关注或者参与或者码云提交PR，
-        我们提供了 java 和 golang 的客服端的实现 有了这样级别的语言支持，目前我们在主流平台上都可以进行穿透，比如 电脑 手机 openwrt nas docker
-        等设备，未来期望实现硬件级别的设备，只需家里给一个小设备供电就能实现 穿透功能.</p>
-    <hr/>
-    <h2 id="申明">申明</h2>
-    <p>本项目是一个公益项目，请各路大神不用恶意攻击，滥用资源，免费开源的项目真的不多</p>
-    <p>使用服务器来进行内网穿透，下载对应的终端的软件包，下载安装免费使用，软件内没有任何的广告，放心使用，对软件有问题也可以加入交流群，进行咨询。</p>
-    <p>可应用于远程办公、远程联调、接口联调、接口回调、公众号调试、本地开发微信、MySQL、TCP/UDP端口转发等一系列功能。</p>
-    <p>软件永远免费，但禁止搭建，涉政治、色情、暴力、赌博、诈骗、影视、私、 违反国家法律、给国家造成负面影响等等的网站，出现问题后果自负，本站概不负责。如有发现一律封号处理。</p>
-    <hr/>
-    <h2 id="下载">下载</h2>
-    <!-- <div class="xz">
-        <a href="https://gitee.com/HServer/hp-android-client/releases" target="_blank">安卓下载</a>
-        <a href="https://gitee.com/Hserver/hp/releases" target="_blank">其他端下载</a>
-    </div> -->
-    <hr/>
-    <!-- <h2 id="加入交流群" align="center" style="text-indent:0em;">加入 HP-Client 的交流群</h2> -->
-    <div style="text-align:center;">
-        <image src="./image/ewm.png" class="ewm"></image>
-    </div>
-    <hr/>
-    <p align="center" style="font-size:100%;">网页开发：ice_xnt(群友:一名在校高中学生开发)</p>
-    <hr/>
-</div>
+  </footer>
+
+  <script src="./js/script.js" defer></script>
 </body>
 </html>

@@ -1,7 +1,6 @@
 package tcp
 
 import (
-	"proxy-client-golang/Protol"
 	"proxy-client-golang/hpMessage"
 	"net"
 )
@@ -19,16 +18,13 @@ func (l *LocalProxyHandler) ChannelActive(conn net.Conn) {
 }
 
 func (l *LocalProxyHandler) ChannelRead(conn net.Conn, data interface{}) {
-	bytes := data.([]byte)
-	message := &hpMessage.HpMessage{
-		Type: hpMessage.HpMessage_DATA,
-		Data: bytes,
-		MetaData: &hpMessage.HpMessage_MetaData{
-			Type:      hpMessage.HpMessage_TCP,
-			ChannelId: l.RemoteChannelId,
-		},
+	bytes, ok := data.([]byte)
+	if !ok {
+		return
 	}
-	l.HpClientHandler.Conn.Write(Protol.Encode(message))
+	if err := l.HpClientHandler.WriteToRemote(hpMessage.HpMessage_TCP, l.RemoteChannelId, bytes); err != nil {
+		l.HpClientHandler.callMsg("内网发送远端错误：" + err.Error())
+	}
 }
 
 func (l *LocalProxyHandler) ChannelInactive(conn net.Conn) {

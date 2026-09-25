@@ -7,6 +7,7 @@ import (
 	"proxy-client-golang/pkg/logger"
 	"proxy-client-golang/tcp"
 	"proxy-client-golang/web"
+	"strconv"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -61,6 +62,10 @@ func main() {
 	var (
 		deviceId string
 		logLevel int
+		// Web 控制台配置
+		webHost  string
+		webPort  int
+		webToken string
 		// SSL配置参数
 		sslEnabled      bool
 		sslCertFile     string
@@ -72,6 +77,11 @@ func main() {
 
 	flag.StringVar(&deviceId, "deviceId", "NO_ID", "设备ID")
 	flag.IntVar(&logLevel, "logLevel", web.LogLevelInfo, "日志级别(0=Debug,1=Info,2=Warn,3=Error)")
+
+	// Web 控制台配置：默认只监听本机，远程访问需要显式指定令牌。
+	flag.StringVar(&webHost, "webHost", "", "Web控制台监听地址(默认 127.0.0.1，0.0.0.0 表示允许局域网访问)")
+	flag.IntVar(&webPort, "webPort", 0, "Web控制台端口(默认 10240)")
+	flag.StringVar(&webToken, "webToken", "", "Web控制台访问令牌(远程访问时必须设置)")
 
 	// SSL/TLS配置参数
 	flag.BoolVar(&sslEnabled, "ssl", false, "启用SSL/TLS加密连接")
@@ -88,6 +98,17 @@ func main() {
 		if envId := os.Getenv("deviceId"); envId != "" {
 			deviceId = envId
 		}
+	}
+
+	// Web 控制台配置：命令行参数优先，其次环境变量（由 StartWeb 读取）。
+	if webHost != "" {
+		_ = os.Setenv("WEB_HOST", webHost)
+	}
+	if webToken != "" {
+		_ = os.Setenv("WEB_TOKEN", webToken)
+	}
+	if webPort > 0 {
+		_ = os.Setenv("WEB_PORT", strconv.Itoa(webPort))
 	}
 
 	// 初始化SSL配置
@@ -116,9 +137,7 @@ func main() {
 
 	web.InitCloudDevice("https://proxy.properos.cn", deviceId, logLevel, log)
 
-	log.Infof("服务就绪 url=%s version=%s", "http://127.0.0.1:10240/", "16.0")
-
-	web.StartWeb(0, "16.0", log)
+	web.StartWeb(webPort, "16.0", log)
 }
 
 // getEnvOrFlag 获取环境变量值，如果环境变量存在则优先使用

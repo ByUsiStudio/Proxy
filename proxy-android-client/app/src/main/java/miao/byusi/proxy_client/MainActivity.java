@@ -117,22 +117,25 @@ public class MainActivity extends AppCompatActivity {
         ws.setJavaScriptEnabled(true);
         ws.setLayoutAlgorithm(WebSettings.LayoutAlgorithm.NORMAL);
         ws.setLoadsImagesAutomatically(true);
-        ws.setJavaScriptCanOpenWindowsAutomatically(true);
+        // 控制台不需要弹窗与地理位置，全部关闭以缩小攻击面
+        ws.setJavaScriptCanOpenWindowsAutomatically(false);
         ws.setUseWideViewPort(true);
         ws.setLoadWithOverviewMode(true);
-        ws.setGeolocationEnabled(true);
-        ws.setAppCacheEnabled(true);
+        ws.setGeolocationEnabled(false);
         ws.setDomStorageEnabled(true);
         ws.setDefaultTextEncodingName("utf-8");
+        // 禁止访问本地文件与 content:// 资源，防止本地文件被页面读取
+        ws.setAllowFileAccess(false);
+        ws.setAllowContentAccess(false);
 
         // 缩放设置
         ws.setSupportZoom(true);
         ws.setBuiltInZoomControls(true);
         ws.setDisplayZoomControls(false); // 隐藏缩放控件
 
-        // 混合内容设置（解决 HTTPS 页面加载 HTTP 资源的问题）
+        // 混合内容：控制台是同源纯 HTTP 服务，禁止 HTTPS 页面混入不安全的 HTTP 资源
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            ws.setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+            ws.setMixedContentMode(android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         }
 
         webView.setInitialScale(100);
@@ -161,8 +164,10 @@ public class MainActivity extends AppCompatActivity {
 
             @Override
             public void onReceivedSslError(com.tencent.smtt.sdk.WebView view, SslErrorHandler handler, SslError error) {
-                // 处理 SSL 错误（开发环境可以接受所有证书）
-                handler.proceed();
+                // 安全修复：不再无条件信任证书，否则中间人攻击可完全接管页面内容。
+                android.util.Log.e("MainActivity", "SSL 校验失败，已取消加载: " + error);
+                Toast.makeText(MainActivity.this, "站点证书校验失败，已中止加载", Toast.LENGTH_SHORT).show();
+                handler.cancel();
             }
 
             @Override
@@ -375,37 +380,17 @@ public class MainActivity extends AppCompatActivity {
     }
 
     /**
-     * 判断是否为本地IP地址
+     * 判断是否为本地控制台地址
+     * 安全修复：只信任回环地址，其它地址一律交给系统浏览器处理，
+     * 避免把局域网/任意地址当作“本地控制台”在 WebView 中加载。
      * @param host 主机名或IP
-     * @return 如果是本地IP地址返回true，否则返回false
+     * @return 如果是回环地址返回true，否则返回false
      */
     private boolean isLocalIpAddress(String host) {
         if (host == null || host.isEmpty()) {
             return false;
         }
-        
-        // 检查是否为localhost
-        if ("localhost".equalsIgnoreCase(host) || "127.0.0.1".equals(host)) {
-            return true;
-        }
-        
-        // 检查是否为局域网IP
-        // 192.168.x.x
-        if (host.matches("^192\\.168\\.\\d{1,3}\\.\\d{1,3}$")) {
-            return true;
-        }
-        
-        // 10.x.x.x
-        if (host.matches("^10\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}$")) {
-            return true;
-        }
-        
-        // 172.16-31.x.x
-        if (host.matches("^172\\.(1[6-9]|2[0-9]|3[0-1])\\.\\d{1,3}\\.\\d{1,3}$")) {
-            return true;
-        }
-        
-        return false;
+        return "localhost".equalsIgnoreCase(host) || "127.0.0.1".equals(host) || "::1".equals(host);
     }
 
     /**
@@ -530,15 +515,12 @@ public class MainActivity extends AppCompatActivity {
      * 加载本地 Web 页面
      */
     private void loadLocalWebPage() {
-        String localIp = getLocalIpAddress();
-        if (localIp.equals("0.0.0.0")) {
-            if (isEmulator()) {
-                localIp = "127.0.0.1";
-            }
-        }
-
-        final String url = "http://" + localIp + ":" + LOCAL_PORT;
+        // 控制台出于安全考虑默认只监听回环地址（127.0.0.1），
+        // WebView 与服务运行在同一台设备上，因此必须使用回环地址访问。
+        // 使用局域网 IP 会让控制台（含账号密码）暴露在同一 Wi-Fi 的其他设备面前。
+        final String url = "http://127.0.0.1:" + LOCAL_PORT;
         android.util.Log.d("MainActivity", "Loading URL: " + url);
+        android.util.Log.d("MainActivity", "LAN address (仅用于排查): " + getLocalIpAddress());
 
         // 重置状态
         isLoadingSuccess = false;
@@ -583,20 +565,6 @@ public class MainActivity extends AppCompatActivity {
             ex.printStackTrace();
         }
         return "127.0.0.1"; // 降级方案
-    }
-
-    /**
-     * 检查是否为模拟器
-     */
-    private boolean isEmulator() {
-        return Build.FINGERPRINT.startsWith("generic")
-                || Build.FINGERPRINT.startsWith("unknown")
-                || Build.MODEL.contains("google_sdk")
-                || Build.MODEL.contains("Emulator")
-                || Build.MODEL.contains("Android SDK built for x86")
-                || Build.MANUFACTURER.contains("Genymotion")
-                || (Build.BRAND.startsWith("generic") && Build.DEVICE.startsWith("generic"))
-                || "google_sdk".equals(Build.PRODUCT);
     }
 
     /**

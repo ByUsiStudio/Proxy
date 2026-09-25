@@ -1,458 +1,203 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN" data-theme="light">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
-    <meta name="renderer" content="webkit">
-    <meta http-equiv="Cache-Control" content="no-siteapp">
-    <meta name="format-detection" content="telephone=no">
-    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
-    <link rel="stylesheet" href="common/css/proxy-beauty.css">
-    <script src="/api.js"></script>
-    <script src="common/js/jquery.min.js"></script>
-    <title>穿透服务 - Proxy内网穿透</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <meta name="referrer" content="no-referrer">
+  <title>穿透服务 · Proxy 控制台</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%232f6bff' d='M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="common/css/app.css">
+  <script src="/api.js"></script>
+  <script src="common/js/app.js"></script>
 </head>
 <body>
-    <header class="app-header">
-        <button class="menu-toggle" id="menuToggle">
-            <i class="material-icons">menu</i>
+  <div class="app">
+    <header class="app-header" id="appHeader"></header>
+    <div class="app-body">
+      <nav class="side-nav" id="sideNav" aria-label="主导航"></nav>
+      <button type="button" class="scrim" id="scrim" aria-label="关闭菜单" tabindex="-1"></button>
+
+      <main class="content" id="content">
+        <div class="page-head">
+          <div>
+            <h1 class="page-head__title">穿透服务</h1>
+            <p class="page-head__desc">管理本机全部隧道：实时状态、流量与连接数，支持批量停止与配置导出。</p>
+          </div>
+          <div class="toolbar">
+            <button type="button" class="btn btn--primary" id="addBtn">
+              <span data-icon="plus"></span><span>添加穿透</span>
+            </button>
+            <button type="button" class="btn btn--ghost" id="checkCore">
+              <span data-icon="cpu"></span><span class="hide-sm">检查内核</span>
+            </button>
+            <button type="button" class="btn btn--ghost" id="refreshBtn">
+              <span data-icon="refresh"></span><span class="hide-sm">刷新</span>
+            </button>
+          </div>
+        </div>
+
+        <section class="grid grid--tight" aria-label="运行概览">
+          <div class="kpi">
+            <span class="kpi__icon" data-icon="rocket"></span>
+            <div class="kpi__body">
+              <div class="kpi__value" id="kpiTunnels">—</div>
+              <div class="kpi__label">隧道总数</div>
+            </div>
+          </div>
+          <div class="kpi">
+            <span class="kpi__icon kpi__icon--down" data-icon="activity"></span>
+            <div class="kpi__body">
+              <div class="kpi__value" id="kpiOnline">—</div>
+              <div class="kpi__label">在线隧道</div>
+            </div>
+          </div>
+          <div class="kpi">
+            <span class="kpi__icon kpi__icon--warn" data-icon="link"></span>
+            <div class="kpi__body">
+              <div class="kpi__value" id="kpiConns">—</div>
+              <div class="kpi__label">活跃连接</div>
+            </div>
+          </div>
+          <div class="kpi">
+            <span class="kpi__icon kpi__icon--up" data-icon="zap"></span>
+            <div class="kpi__body">
+              <div class="kpi__value" id="kpiTraffic">—</div>
+              <div class="kpi__label">累计转发流量</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card__head">
+            <h2 class="card__title"><span data-icon="list"></span>隧道列表</h2>
+            <div class="toolbar">
+              <label class="switch" title="按固定间隔自动刷新列表">
+                <input type="checkbox" id="autoRefresh">
+                <span class="switch__track"></span>
+                <span>自动刷新</span>
+              </label>
+              <select class="select" id="interval" aria-label="自动刷新间隔" style="width: auto;">
+                <option value="2000">2 秒</option>
+                <option value="5000" selected>5 秒</option>
+                <option value="10000">10 秒</option>
+                <option value="30000">30 秒</option>
+              </select>
+              <input class="input" id="search" type="search" placeholder="搜索域名 / 目标 / 服务器" style="width: 12rem;">
+              <button type="button" class="btn btn--danger btn--sm" id="batchStop" disabled>
+                <span data-icon="stop"></span><span>批量停止</span>
+              </button>
+              <button type="button" class="btn btn--ghost btn--sm" id="exportBtn">
+                <span data-icon="download"></span><span>导出</span>
+              </button>
+            </div>
+          </div>
+          <div class="card__body card__body--flush">
+            <div class="table-wrap">
+              <table class="table table--stack">
+                <thead>
+                  <tr>
+                    <th style="width: 2.5rem;">
+                      <input type="checkbox" id="selectAll" aria-label="全选隧道">
+                    </th>
+                    <th class="is-sortable" data-sort="Domain" data-sort-type="string">域名<span class="sort-ind">↕</span></th>
+                    <th class="is-sortable" data-sort="Type" data-sort-type="string">类型<span class="sort-ind">↕</span></th>
+                    <th class="is-sortable" data-sort="Target" data-sort-type="string">内网服务<span class="sort-ind">↕</span></th>
+                    <th class="is-sortable" data-sort="Server" data-sort-type="string">穿透服务器<span class="sort-ind">↕</span></th>
+                    <th class="is-sortable" data-sort="Status" data-sort-type="boolean">状态<span class="sort-ind">↕</span></th>
+                    <th class="is-sortable table__num" data-sort="InBytes" data-sort-type="number">入站<span class="sort-ind">↕</span></th>
+                    <th class="is-sortable table__num" data-sort="OutBytes" data-sort-type="number">出站<span class="sort-ind">↕</span></th>
+                    <th class="is-sortable table__num" data-sort="ConnCount" data-sort-type="number">连接<span class="sort-ind">↕</span></th>
+                    <th class="is-sortable table__num" data-sort="Uptime" data-sort-type="number">时长<span class="sort-ind">↕</span></th>
+                    <th style="text-align: right;">操作</th>
+                  </tr>
+                </thead>
+                <tbody id="tabData"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="card__foot" id="listFoot">正在加载隧道列表…</div>
+        </section>
+
+        <section class="card">
+          <div class="card__head">
+            <h2 class="card__title"><span data-icon="terminal"></span>实时日志</h2>
+            <a class="btn btn--ghost btn--sm" href="log.html">
+              <span data-icon="external"></span><span>日志中心</span>
+            </a>
+          </div>
+          <div class="card__body">
+            <div class="log-view" id="logPreview" aria-live="polite"></div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <!-- 添加穿透 -->
+  <div class="modal" id="addModal" role="dialog" aria-modal="true" aria-labelledby="addModalTitle">
+    <div class="modal__panel">
+      <div class="modal__head">
+        <h3 class="modal__title" id="addModalTitle">添加穿透服务</h3>
+        <button type="button" class="btn btn--ghost btn--icon" id="addClose" aria-label="关闭">
+          <span data-icon="close"></span>
         </button>
-        <a href="center.html" class="logo">Proxy<span>内网穿透</span></a>
-        <div class="header-spacer"></div>
-        <div class="user-info">
-            <span class="user-badge" id="userInfoDisplay">
-                <span id="username">***</span>
-                <span class="hide-mobile"> · <span id="level">***</span></span>
-            </span>
-            <button class="logout-btn" id="login_out">
-                <i class="material-icons show-mobile" style="font-size: 1.2rem;">exit_to_app</i>
-                <span class="hide-mobile">退出</span>
-            </button>
-        </div>
-    </header>
-
-    <div class="sidebar-overlay" id="sidebarOverlay"></div>
-    
-    <aside class="sidebar" id="sidebar">
-        <nav class="sidebar-nav">
-            <a href="center.html" class="nav-item active">
-                <i class="material-icons">near_me</i>
-                <span>穿透服务</span>
-            </a>
-            <a href="port.html" class="nav-item">
-                <i class="material-icons">dns</i>
-                <span>端口管理</span>
-            </a>
-            <a href="domain.html" class="nav-item">
-                <i class="material-icons">language</i>
-                <span>域名管理</span>
-            </a>
-            <a href="autoproxy.html" class="nav-item">
-                <i class="material-icons">autorenew</i>
-                <span>自动穿透</span>
-            </a>
-            <a href="log.html" class="nav-item">
-                <i class="material-icons">history</i>
-                <span>穿透日志</span>
-            </a>
-        </nav>
-    </aside>
-
-    <main class="main-content" id="mainContent">
-        <div class="flex gap-2 mb-3">
-            <button class="btn btn-primary" onclick="openAddDialog()">
-                <i class="material-icons" style="font-size: 1.25rem;">add</i>
-                <span class="hide-mobile">添加穿透</span>
-            </button>
-            <button class="btn btn-outline" id="checkCore">
-                <i class="material-icons" style="font-size: 1.25rem;">info</i>
-                <span class="hide-mobile">检查内核</span>
-            </button>
-            <button class="btn btn-outline" id="refUser">
-                <i class="material-icons" style="font-size: 1.25rem;">refresh</i>
-                <span class="hide-mobile">刷新</span>
-            </button>
-        </div>
-
-        <div class="card">
-            <div class="card-header">
-                <h3 class="card-title">穿透服务列表</h3>
-            </div>
-            <div class="card-body p-0">
-                <div class="table-responsive">
-                    <table class="table">
-                        <thead>
-                            <tr>
-                                <th>域名</th>
-                                <th>内网服务</th>
-                                <th>穿透服务</th>
-                                <th>状态</th>
-                                <th>操作</th>
-                            </tr>
-                        </thead>
-                        <tbody id="tabData"></tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-
-        <div class="card">
-            <div class="card-header">
-                <h3 class="card-title">实时日志</h3>
-            </div>
-            <div class="card-body">
-                <ul class="log-list" id="log"></ul>
-            </div>
-        </div>
-    </main>
-
-    <!-- 添加穿透服务对话框 -->
-    <div class="modal" id="addModal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3 class="modal-title">添加穿透服务</h3>
-                <button class="modal-close" onclick="closeAddDialog()">&times;</button>
-            </div>
-            <form id="handle-form">
-                <div class="modal-body">
-                    <input type="hidden" id="password" name="password">
-                    <input type="hidden" id="usernameFrom" name="username">
-                    
-                    <div class="form-group">
-                        <label class="form-label">内网IP</label>
-                        <input class="form-input" name="ip" placeholder="例如: 127.0.0.1" type="text">
-                    </div>
-                    
-                    <div class="form-group">
-                        <label class="form-label">内网端口</label>
-                        <input class="form-input" name="port" placeholder="例如: 8080" type="text">
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label">穿透类型</label>
-                        <div class="radio-group">
-                            <label class="radio-label">
-                                <input type="radio" value="TCP" name="type" checked> TCP
-                            </label>
-                            <label class="radio-label">
-                                <input type="radio" value="UDP" name="type"> UDP
-                            </label>
-                            <label class="radio-label">
-                                <input type="radio" value="TCP_UDP" name="type"> TCP+UDP
-                            </label>
-                        </div>
-                    </div>
-
-                    <div class="form-group" id="server_data"></div>
-
-                    <div style="display: none;" class="form-group" id="showServerInfoInPut">
-                        <label class="form-label">自定义穿透服务</label>
-                        <input class="form-input" id="showServerInfoInPutVal" placeholder="ip:端口" type="text">
-                    </div>
-
-                    <div class="form-group" id="domains"></div>
-                    <div class="form-group" id="ports"></div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-outline" onclick="closeAddDialog()">取消</button>
-                    <button type="button" class="btn btn-primary" id="add_btn">确定</button>
-                </div>
-            </form>
-        </div>
+      </div>
+      <div class="modal__body">
+        <form id="handle-form" novalidate>
+          <div class="field">
+            <label class="field__label" for="ip">内网 IP<span class="field__hint">被穿透服务所在的内网地址</span></label>
+            <input class="input" id="ip" name="ip" type="text" placeholder="127.0.0.1" autocomplete="off">
+          </div>
+          <div class="field">
+            <label class="field__label" for="port">内网端口</label>
+            <input class="input" id="port" name="port" type="text" inputmode="numeric" placeholder="8080" autocomplete="off">
+          </div>
+          <div class="field">
+            <span class="field__label">穿透类型</span>
+            <div class="radios" id="typeRadios"></div>
+          </div>
+          <div class="field" id="serverField">
+            <span class="field__label">穿透服务器</span>
+            <div class="radios" id="serverRadios"></div>
+          </div>
+          <div class="field hidden" id="customServerField">
+            <label class="field__label" for="customServer">自定义穿透服务器</label>
+            <input class="input" id="customServer" type="text" placeholder="ip:端口，例如 1.2.3.4:9090" autocomplete="off">
+          </div>
+          <div class="field" id="domainField">
+            <span class="field__label">穿透域名</span>
+            <div class="radios" id="domainRadios"></div>
+          </div>
+          <div class="field">
+            <span class="field__label">外网端口</span>
+            <div class="radios" id="portRadios"></div>
+          </div>
+        </form>
+      </div>
+      <div class="modal__foot">
+        <button type="button" class="btn btn--ghost" id="addCancel">取消</button>
+        <button type="button" class="btn btn--primary" id="addSubmit">确定添加</button>
+      </div>
     </div>
+  </div>
 
-    <!-- 打赏对话框 -->
-    <div class="modal" id="payModal">
-        <div class="modal-content" style="max-width: 400px;">
-            <div class="modal-header">
-                <h3 class="modal-title">支持我们</h3>
-                <button class="modal-close" onclick="closePayDialog()">&times;</button>
-            </div>
-            <div class="modal-body" style="text-align: center;">
-                <img height="300" src="img/pay.jpg" style="max-width: 100%;" onerror="this.src='https://via.placeholder.com/300x400?text=请打赏'">
-                <p class="mt-4 text-secondary">打赏请备注账号</p>
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-outline" onclick="closePayDialog()">关闭</button>
-            </div>
-        </div>
+  <!-- 通用信息弹窗（内核检查等） -->
+  <div class="modal" id="infoModal" role="dialog" aria-modal="true" aria-labelledby="infoTitle">
+    <div class="modal__panel">
+      <div class="modal__head">
+        <h3 class="modal__title" id="infoTitle">提示</h3>
+        <button type="button" class="btn btn--ghost btn--icon" id="infoClose" aria-label="关闭">
+          <span data-icon="close"></span>
+        </button>
+      </div>
+      <div class="modal__body" id="infoBody"></div>
+      <div class="modal__foot">
+        <button type="button" class="btn btn--ghost" id="infoOk">知道了</button>
+      </div>
     </div>
+  </div>
 
-    <script>
-        var userInfo = null;
-        var ws = null;
-
-        $(function() {
-            var storedUserInfo = localStorage.getItem("userInfo");
-            if (!storedUserInfo) {
-                location.href = "login.html";
-                return;
-            }
-            
-            userInfo = JSON.parse(storedUserInfo);
-            $("#username").text(userInfo.username || "***");
-            $("#level").text(userInfo.level || "***");
-            
-            if (userInfo.tips) {
-                alert(userInfo.tips);
-            }
-            
-            $("#login_out").click(function() {
-                localStorage.removeItem("userInfo");
-                location.href = "login.html";
-            });
-
-            $("#menuToggle").click(function() {
-                $("#sidebar").addClass("open");
-                $("#sidebarOverlay").addClass("active");
-                $("body").css("overflow", "hidden");
-            });
-
-            $("#sidebarOverlay").click(function() {
-                $("#sidebar").removeClass("open");
-                $("#sidebarOverlay").removeClass("active");
-                $("body").css("overflow", "");
-            });
-
-            $(window).resize(function() {
-                if ($(window).width() >= 1024) {
-                    $("#sidebar").removeClass("open");
-                    $("#sidebarOverlay").removeClass("active");
-                    $("body").css("overflow", "");
-                }
-            });
-
-            $("#checkCore").click(function() {
-                $.get("/core/version", function(result) {
-                    alert(result.Msg || "未知版本");
-                }).fail(function() {
-                    alert("获取版本失败");
-                });
-            });
-
-            $("#refUser").click(function() {
-                $.post(apiAddress + "/user/login", {username: userInfo.username, password: userInfo.password}, function(result) {
-                    if (result.code === 200) {
-                        localStorage.setItem("userInfo", JSON.stringify(result.data));
-                        location.reload();
-                    } else {
-                        alert(result.msg || "刷新失败");
-                    }
-                }).fail(function() {
-                    alert("网络错误");
-                });
-            });
-
-            var showPay = localStorage.getItem("showPay");
-            if (showPay == "0") {
-                setTimeout(function() {
-                    openPayDialog();
-                }, 500);
-                localStorage.setItem("showPay", "1");
-            }
-
-            initForm();
-            loadServerList();
-            initWebSocket();
-        });
-
-        function openAddDialog() {
-            $("#addModal").addClass("open");
-            $("body").css("overflow", "hidden");
-        }
-
-        function closeAddDialog() {
-            $("#addModal").removeClass("open");
-            $("body").css("overflow", "");
-            $("#handle-form")[0].reset();
-            $("#showServerInfoInPut").hide();
-        }
-
-        function openPayDialog() {
-            $("#payModal").addClass("open");
-            $("body").css("overflow", "hidden");
-        }
-
-        function closePayDialog() {
-            $("#payModal").removeClass("open");
-            $("body").css("overflow", "");
-        }
-
-        function initForm() {
-            if (!userInfo) return;
-            
-            $("#password").val(userInfo.password || "");
-            $("#usernameFrom").val(userInfo.username || "");
-
-            var domainHtml = '<label class="form-label">穿透域名</label><div class="radio-group">';
-            if (userInfo.domains && Object.keys(userInfo.domains).length > 0) {
-                for (let a of Object.keys(userInfo.domains)) {
-                    domainHtml += '<label class="radio-label">' +
-                        '<input type="radio" value="' + a + '" name="domain"> ' + a +
-                        '</label>';
-                }
-            } else {
-                domainHtml += '<span class="text-secondary">暂无可用域名</span>';
-            }
-            domainHtml += '</div>';
-            $("#domains").html(domainHtml);
-
-            var portsHtml = '<label class="form-label">外网端口</label><div class="radio-group">' +
-                '<label class="radio-label">' +
-                '<input type="radio" value="0" name="remote_port"> 随机' +
-                '</label>';
-            if (userInfo.ports && userInfo.ports.length > 0) {
-                for (let a of userInfo.ports) {
-                    portsHtml += '<label class="radio-label">' +
-                        '<input type="radio" value="' + a + '" name="remote_port"> ' + a +
-                        '</label>';
-                }
-            }
-            portsHtml += '</div>';
-            $("#ports").html(portsHtml);
-
-            $.get(apiAddress + "/load/data", function(result) {
-                var serverData = (result.code === 200 && result.data) ? result.data : [];
-                var serverDataHtml = '<label class="form-label">穿透服务</label><div class="radio-group">';
-                
-                for (let a of serverData) {
-                    serverDataHtml += '<label class="radio-label">' +
-                        '<input type="radio" value="' + a.ip + ':' + a.port + '" name="server_info"> ' +
-                        a.name + '(' + (a.num || 0) + ')' +
-                        '</label>';
-                }
-                serverDataHtml += '<label class="radio-label">' +
-                    '<input type="radio" value="-1" name="server_info"> 自定义' +
-                    '</label></div>';
-                
-                $("#server_data").html(serverDataHtml);
-
-                $("input[name='server_info']").on("click", function() {
-                    if ($(this).val() == -1) {
-                        $("#showServerInfoInPut").show();
-                    } else {
-                        $("#showServerInfoInPut").hide();
-                    }
-                });
-
-                $("input[name='type']").on("click", function() {
-                    if ($(this).val() == 'UDP') {
-                        $("#domains").hide();
-                    } else {
-                        $("#domains").show();
-                    }
-                });
-            }).fail(function() {
-                $("#server_data").html('<div class="text-secondary">加载失败</div>');
-            });
-        }
-
-        function loadServerList() {
-            $.get("/server/info", function(result) {
-                var tabData = "";
-                if (result && result.length > 0) {
-                    for (let a of result) {
-                        let statusClass = a.Status === '运行中' ? 'badge-success' : 'badge-danger';
-                        tabData += '<tr>' +
-                            '<td>' + (a.Domain || '-') + '</td>' +
-                            '<td>' + (a.ProxyServer || '-') + '</td>' +
-                            '<td>' + (a.Server || '-') + '</td>' +
-                            '<td><span class="badge ' + statusClass + '">' + (a.Status || '未知') + '</span></td>' +
-                            '<td>' +
-                            '<button class="btn btn-danger btn-sm" onclick="stopServer(\'' + (a.Domain || '') + '\')">' +
-                            '<i class="material-icons" style="font-size: 1.25rem;">stop</i>' +
-                            '<span class="hide-mobile">停止</span>' +
-                            '</button>' +
-                            '</td>' +
-                            '</tr>';
-                    }
-                } else {
-                    tabData = '<tr><td colspan="5" style="text-align: center; padding: 2rem;">暂无数据</td></tr>';
-                }
-                $("#tabData").html(tabData);
-            }).fail(function() {
-                $("#tabData").html('<tr><td colspan="5" style="text-align: center; padding: 2rem;">加载失败</td></tr>');
-            });
-        }
-
-        function stopServer(domain) {
-            if (!domain) {
-                alert("无效的域名");
-                return;
-            }
-            if (confirm("确定停止？")) {
-                $.get("/server/stop?domain=" + domain, function(result) {
-                    alert(result.Msg || "操作成功");
-                    loadServerList();
-                }).fail(function() {
-                    alert("操作失败");
-                });
-            }
-        }
-
-        $("#add_btn").click(function() {
-            let serialize = $("#handle-form").serializeArray();
-            
-            for (let a of serialize) {
-                if (a.name == 'server_info' && a.value == '-1') {
-                    a.value = $("#showServerInfoInPutVal").val();
-                    if (!a.value) {
-                        alert("请输入自定义服务地址");
-                        return;
-                    }
-                }
-            }
-            
-            var hasIp = false, hasPort = false;
-            for (let a of serialize) {
-                if (a.name == 'ip' && a.value) hasIp = true;
-                if (a.name == 'port' && a.value) hasPort = true;
-            }
-            if (!hasIp || !hasPort) {
-                alert("请填写内网IP和端口");
-                return;
-            }
-            
-            $.post("/server/proxy", serialize, function(result) {
-                if (result.Code === 200) {
-                    alert(result.Msg || "添加成功");
-                    closeAddDialog();
-                    loadServerList();
-                } else {
-                    alert(result.Msg || "添加失败");
-                }
-            }).fail(function() {
-                alert("网络错误");
-            });
-        });
-
-        function initWebSocket() {
-            try {
-                ws = new WebSocket("ws://" + window.location.host + "/ws");
-                ws.onmessage = function(evt) {
-                    try {
-                        var result = JSON.parse(evt.data);
-                        $("#log").prepend(
-                            '<li class="log-item">' +
-                            '<div class="log-title">' + (result.Domain || '系统') + '</div>' +
-                            '<div class="log-message">' + (result.Msg || evt.data) + '</div>' +
-                            '</li>'
-                        );
-                        if ($(".log-item").length > 50) {
-                            $(".log-item:gt(49)").remove();
-                        }
-                    } catch (e) {
-                        console.log("WebSocket消息解析失败", e);
-                    }
-                };
-                ws.onerror = function() {
-                    console.log("WebSocket连接错误");
-                };
-            } catch (e) {
-                console.log("WebSocket初始化失败", e);
-            }
-        }
-    </script>
+  <script src="common/js/pages/center.js"></script>
 </body>
 </html>

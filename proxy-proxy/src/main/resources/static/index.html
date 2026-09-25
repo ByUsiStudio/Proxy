@@ -1,20 +1,69 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-CN">
 <head>
-    <meta http-equiv="Content-Type" content="text/html" charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Proxy穿透</title>
-    <meta data-n-head="ssr" charset="utf-8">
-    <meta data-n-head="ssr" data-hid="description" name="description"
-          content="Proxy穿透是一款便捷,免费的内网穿透及端口映射软件,使您无需服务器,无需设置路由器即可对外发布应用,远程桌面,支付调试,NAS云盘,游戏联机等都可使用,支持Http,Tcp,让您不再为网络不互通烦恼.">
-    <meta data-n-head="ssr" data-hid="keywords" name="keywords"
-          content="内网穿透,永久免费内网穿透,内网转发,端口映射,内外网通讯,内网映射,本地微信开发,本地支付回调,内网端口映射工具,内网端口映射,网云穿免费内网穿透,http代理模式,tcp代理模式,网云穿">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="referrer" content="no-referrer">
+  <meta name="robots" content="noindex">
+  <!--
+    中转端静态首页：直接跳转到云后台管理站点。
+    注意：正式的云后台地址请统一为 HTTPS，避免账号密码以明文传输。
+    当前保留原有地址以兼容既有部署，迁移完成后请把下面的地址改为 https://
+  -->
+  <title>正在跳转到 Proxy 云后台…</title>
+  <link rel="icon" href="favicon.ico" type="image/x-icon">
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      gap: 1rem;
+      padding: 2rem;
+      font-family: system-ui, -apple-system, "Microsoft YaHei", sans-serif;
+      background: #f6f8fc;
+      color: #0f172a;
+      text-align: center;
+    }
+    @media (prefers-color-scheme: dark) {
+      body { background: #080d1a; color: #e8eefc; }
+      a { color: #7ba0ff; }
+      .card { background: #131c31; border-color: #22304f; }
+    }
+    .card {
+      max-width: 26rem;
+      padding: 1.75rem;
+      border: 1px solid #e2e8f2;
+      border-radius: 1rem;
+      background: #fff;
+      box-shadow: 0 16px 40px -20px rgba(15, 23, 42, 0.35);
+      line-height: 1.8;
+    }
+    h1 { margin: 0 0 .5rem; font-size: 1.125rem; }
+    p { margin: .25rem 0; color: #56637a; font-size: .875rem; }
+    @media (prefers-color-scheme: dark) { p { color: #9aa8c0; } }
+  </style>
+  <noscript>
+    <meta http-equiv="refresh" content="0; url=http://proxy.byusi.cn:9090">
+  </noscript>
 </head>
 <body>
+  <div class="card">
+    <h1>正在跳转到 Proxy 云后台</h1>
+    <p>如果没有自动跳转，请点击下面的链接。</p>
+    <p><a id="fallback" href="http://proxy.byusi.cn:9090" rel="noopener noreferrer">前往 proxy.byusi.cn:9090</a></p>
+  </div>
 
-<script>
-   location.href="http://proxy.byusi.cn:9090"
-</script>
-
+  <script>
+    (function () {
+      var target = 'http://proxy.byusi.cn:9090';
+      var link = document.getElementById('fallback');
+      if (link) link.href = target;
+      // 使用 replace，避免用户按返回键时在跳转页与后台之间来回弹跳
+      location.replace(target);
+    })();
+  </script>
 </body>
 </html>

@@ -2,20 +2,27 @@ package tcp
 
 import (
 	"crypto/tls"
-	"proxy-client-golang/hpMessage"
 	"net"
-
 	"strconv"
+	"sync"
+	"sync/atomic"
+
+	"proxy-client-golang/hpMessage"
 )
 
 type HpClient struct {
-	CallMsg       func(message string)
+	CallMsg func(message string)
+
+	// mu 保护 conn/handler/serverAddress/serverPort/tlsConfig，
+	// 这些字段会被控制台 HTTP 协程与重连协程同时访问。
+	mu            sync.RWMutex
 	conn          net.Conn
 	serverAddress string
 	serverPort    int
-	isKill        bool
 	handler       *HpClientHandler
 	tlsConfig     *tls.Config
+
+	isKill atomic.Bool
 }
 
 func NewHpClient(callMsg func(message string)) *HpClient {
@@ -33,9 +40,13 @@ func (hpClient *HpClient) ConnectWithTLS(messageType hpMessage.HpMessage_Message
 }
 
 func (hpClient *HpClient) connectWithTLS(messageType hpMessage.HpMessage_MessageType, serverAddress string, serverPort int, username string, password string, domain string, remotePort int, proxyAddress string, proxyPort int, tlsConfig *tls.Config) {
-	if hpClient.conn != nil {
-		hpClient.conn.Close()
+	hpClient.mu.Lock()
+	oldConn := hpClient.conn
+	hpClient.mu.Unlock()
+	if oldConn != nil {
+		_ = oldConn.Close()
 	}
+
 	connection := NewTcpConnection()
 	handler := &HpClientHandler{
 		Port:         remotePort,
@@ -47,43 +58,82 @@ func (hpClient *HpClient) connectWithTLS(messageType hpMessage.HpMessage_Message
 		ProxyPort:    proxyPort,
 		CallMsg:      hpClient.CallMsg,
 	}
+
+	conn := connection.ConnectWithTLS(serverAddress, serverPort, true, handler, hpClient.CallMsg, tlsConfig)
+
+	hpClient.mu.Lock()
 	hpClient.serverAddress = serverAddress
 	hpClient.serverPort = serverPort
 	hpClient.handler = handler
 	hpClient.tlsConfig = tlsConfig
-	hpClient.conn = connection.ConnectWithTLS(serverAddress, serverPort, true, handler, hpClient.CallMsg, tlsConfig)
+	hpClient.conn = conn
+	hpClient.mu.Unlock()
+}
+
+// GetConn 返回当前云端连接，可能为 nil。
+func (hpClient *HpClient) GetConn() net.Conn {
+	hpClient.mu.RLock()
+	defer hpClient.mu.RUnlock()
+	return hpClient.conn
+}
+
+// GetHandler 返回当前隧道处理器，可能为 nil。
+func (hpClient *HpClient) GetHandler() *HpClientHandler {
+	hpClient.mu.RLock()
+	defer hpClient.mu.RUnlock()
+	return hpClient.handler
 }
 
 func (hpClient *HpClient) GetStatus() bool {
-	if hpClient.handler != nil {
-		return hpClient.handler.Active
-	} else {
+	handler := hpClient.GetHandler()
+	if handler == nil {
 		return false
 	}
+	return handler.IsActive()
+}
+
+// Stats 返回该隧道的实时流量与连接统计。
+func (hpClient *HpClient) Stats() HandlerStats {
+	handler := hpClient.GetHandler()
+	if handler == nil {
+		return HandlerStats{}
+	}
+	return handler.Stats()
 }
 
 func (hpClient *HpClient) IsKill() bool {
-	return hpClient.isKill
+	return hpClient.isKill.Load()
 }
 
 func (hpClient *HpClient) GetProxyServer() string {
-	return hpClient.handler.ProxyAddress + ":" + strconv.Itoa(hpClient.handler.ProxyPort)
+	handler := hpClient.GetHandler()
+	if handler == nil {
+		return ""
+	}
+	return handler.ProxyAddress + ":" + strconv.Itoa(handler.ProxyPort)
 }
 
 func (hpClient *HpClient) GetServer() string {
+	hpClient.mu.RLock()
+	defer hpClient.mu.RUnlock()
 	return hpClient.serverAddress + ":" + strconv.Itoa(hpClient.serverPort)
 }
 
 func (hpClient *HpClient) Kill() {
-	hpClient.isKill = true
+	hpClient.isKill.Store(true)
 	hpClient.Close()
 }
 
 func (hpClient *HpClient) Close() {
-	if hpClient.conn != nil {
-		hpClient.conn.Close()
+	hpClient.mu.Lock()
+	conn := hpClient.conn
+	handler := hpClient.handler
+	hpClient.mu.Unlock()
+
+	if conn != nil {
+		_ = conn.Close()
 	}
-	if hpClient.handler != nil {
-		hpClient.handler.CloseAll()
+	if handler != nil {
+		handler.CloseAll()
 	}
 }

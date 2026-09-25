@@ -1,175 +1,102 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN" data-theme="light">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
-    <meta name="renderer" content="webkit">
-    <meta http-equiv="Cache-Control" content="no-siteapp">
-    <meta name="format-detection" content="telephone=no">
-    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
-    <link rel="stylesheet" href="common/css/proxy-beauty.css">
-    <script src="/api.js"></script>
-    <script src="common/js/jquery.min.js"></script>
-    <title>穿透日志 - Proxy内网穿透</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <meta name="referrer" content="no-referrer">
+  <title>运行日志 · Proxy 控制台</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%232f6bff' d='M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="common/css/app.css">
+  <script src="/api.js"></script>
+  <script src="common/js/app.js"></script>
 </head>
 <body>
-    <header class="app-header">
-        <button class="menu-toggle" id="menuToggle">
-            <i class="material-icons">menu</i>
-        </button>
-        <a href="center.html" class="logo">Proxy<span>内网穿透</span></a>
-        <div class="header-spacer"></div>
-        <div class="user-info">
-            <span class="user-badge" id="userInfoDisplay">
-                <span id="username">***</span>
-            </span>
-            <button class="logout-btn" id="login_out">
-                <i class="material-icons show-mobile" style="font-size: 1.2rem;">exit_to_app</i>
-                <span class="hide-mobile">退出</span>
-            </button>
+  <div class="app">
+    <header class="app-header" id="appHeader"></header>
+    <div class="app-body">
+      <nav class="side-nav" id="sideNav" aria-label="主导航"></nav>
+      <button type="button" class="scrim" id="scrim" aria-label="关闭菜单" tabindex="-1"></button>
+
+      <main class="content" id="content">
+        <div class="page-head">
+          <div>
+            <h1 class="page-head__title">运行日志</h1>
+            <p class="page-head__desc">来自本机隧道的实时事件；支持关键词、级别、域名过滤与导出。</p>
+          </div>
+          <div class="toolbar">
+            <a class="btn btn--ghost" href="stats.html">
+              <span data-icon="chart"></span><span class="hide-sm">数据统计</span>
+            </a>
+          </div>
         </div>
-    </header>
 
-    <div class="sidebar-overlay" id="sidebarOverlay"></div>
-    
-    <aside class="sidebar" id="sidebar">
-        <nav class="sidebar-nav">
-            <a href="center.html" class="nav-item">
-                <i class="material-icons">near_me</i>
-                <span>穿透服务</span>
-            </a>
-            <a href="port.html" class="nav-item">
-                <i class="material-icons">dns</i>
-                <span>端口管理</span>
-            </a>
-            <a href="domain.html" class="nav-item">
-                <i class="material-icons">language</i>
-                <span>域名管理</span>
-            </a>
-            <a href="autoproxy.html" class="nav-item">
-                <i class="material-icons">autorenew</i>
-                <span>自动穿透</span>
-            </a>
-            <a href="log.html" class="nav-item active">
-                <i class="material-icons">history</i>
-                <span>穿透日志</span>
-            </a>
-        </nav>
-    </aside>
+        <section class="card">
+          <div class="card__head">
+            <h2 class="card__title"><span data-icon="filter"></span>过滤与操作</h2>
+            <div class="toolbar">
+              <span class="chip chip--dot chip--warn" id="channelChip" role="status">实时通道连接中</span>
+            </div>
+          </div>
+          <div class="card__body">
+            <div class="toolbar">
+              <div class="seg" id="levelSeg" role="group" aria-label="日志级别过滤">
+                <button type="button" class="seg__item is-active" data-level="all" aria-pressed="true">全部</button>
+                <button type="button" class="seg__item" data-level="debug" aria-pressed="false">debug</button>
+                <button type="button" class="seg__item" data-level="info" aria-pressed="false">info</button>
+                <button type="button" class="seg__item" data-level="warn" aria-pressed="false">warn</button>
+                <button type="button" class="seg__item" data-level="error" aria-pressed="false">error</button>
+              </div>
+              <select class="select" id="domainFilter" aria-label="按域名过滤" style="width: auto;">
+                <option value="all">全部域名</option>
+              </select>
+              <input class="input" id="keyword" type="search" placeholder="关键词：域名或消息内容"
+                     aria-label="关键词过滤" autocomplete="off" style="width: 14rem;">
+              <button type="button" class="btn btn--ghost" id="pauseBtn" aria-pressed="false" title="暂停日志渲染，暂停期间的新日志会被丢弃">
+                <span data-icon="pause" id="pauseIcon"></span><span id="pauseLabel">暂停</span>
+              </button>
+              <span class="badge badge--warn hidden" id="bufferBadge" role="status">已丢弃 0 行</span>
+            </div>
 
-    <main class="main-content" id="mainContent">
-        <div class="card">
-            <div class="card-header">
-                <h3 class="card-title">流量统计</h3>
-                <button class="btn btn-outline btn-sm" onclick="refreshLog()">
-                    <i class="material-icons" style="font-size: 1.25rem;">refresh</i>
-                    <span class="hide-mobile">刷新</span>
+            <div class="toolbar mt-4">
+              <button type="button" class="btn btn--ghost btn--sm" id="exportTxt">
+                <span data-icon="download"></span><span>导出 TXT</span>
+              </button>
+              <button type="button" class="btn btn--ghost btn--sm" id="exportJson">
+                <span data-icon="download"></span><span>导出 JSON</span>
+              </button>
+              <button type="button" class="btn btn--ghost btn--sm" id="copyBtn">
+                <span data-icon="copy"></span><span>复制</span>
+              </button>
+              <button type="button" class="btn btn--ghost btn--sm" id="clearBtn">
+                <span data-icon="trash"></span><span>清空</span>
+              </button>
+              <div class="field-row" style="width: min(100%, 18rem);">
+                <input class="input" id="heartbeat" type="text" value="ping" autocomplete="off"
+                       placeholder="心跳内容，默认 ping" aria-label="手动探测内容">
+                <button type="button" class="btn btn--subtle btn--sm" id="heartbeatBtn" title="向服务端发送 ping，服务端会回显 pong">
+                  <span data-icon="zap"></span><span>发送心跳</span>
                 </button>
+              </div>
+              <span class="text-xs faint nums" id="lineCount" role="status">显示 0 / 共 0 行</span>
             </div>
-            <div class="card-body p-0">
-                <div class="table-responsive">
-                    <table class="table">
-                        <thead>
-                            <tr>
-                                <th>ID</th>
-                                <th>用户名</th>
-                                <th>端口</th>
-                                <th>接收</th>
-                                <th>发送</th>
-                                <th>连接数</th>
-                                <th>数据包</th>
-                                <th>时间</th>
-                            </tr>
-                        </thead>
-                        <tbody id="tabData"></tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    </main>
+          </div>
+        </section>
 
-    <script>
-        var userInfo = null;
+        <section class="card">
+          <div class="card__head">
+            <h2 class="card__title"><span data-icon="terminal"></span>实时日志</h2>
+            <span class="card__hint">最多保留最近 800 行，超出后自动淘汰最早记录</span>
+          </div>
+          <div class="card__body">
+            <div class="log-view" id="logView" aria-live="polite"></div>
+          </div>
+          <div class="card__foot" id="logFoot">正在连接实时通道…</div>
+        </section>
+      </main>
+    </div>
+  </div>
 
-        $(function() {
-            var storedUserInfo = localStorage.getItem("userInfo");
-            if (!storedUserInfo) {
-                location.href = "login.html";
-                return;
-            }
-            
-            userInfo = JSON.parse(storedUserInfo);
-            $("#username").text(userInfo.username || "***");
-            
-            $("#login_out").click(function() {
-                localStorage.removeItem("userInfo");
-                location.href = "login.html";
-            });
-
-            $("#menuToggle").click(function() {
-                $("#sidebar").addClass("open");
-                $("#sidebarOverlay").addClass("active");
-                $("body").css("overflow", "hidden");
-            });
-
-            $("#sidebarOverlay").click(function() {
-                $("#sidebar").removeClass("open");
-                $("#sidebarOverlay").removeClass("active");
-                $("body").css("overflow", "");
-            });
-
-            $(window).resize(function() {
-                if ($(window).width() >= 1024) {
-                    $("#sidebar").removeClass("open");
-                    $("#sidebarOverlay").removeClass("active");
-                    $("body").css("overflow", "");
-                }
-            });
-
-            loadLogData();
-        });
-
-        function refreshLog() {
-            loadLogData();
-        }
-
-        function loadLogData() {
-            if (!userInfo || !userInfo.username) return;
-            
-            $.get(apiAddress + "/statistics/getMyInfo?username=" + encodeURIComponent(userInfo.username) + "&page=1", function(result) {
-                var tabData = "";
-                if (result.code === 200 && result.data && result.data.list && result.data.list.length > 0) {
-                    for (let a of result.data.list) {
-                        tabData += '<tr>' +
-                            '<td>' + (a.id || '-') + '</td>' +
-                            '<td>' + (a.username || '-') + '</td>' +
-                            '<td>' + (a.port || '-') + '</td>' +
-                            '<td>' + formatBytes(a.receive || 0) + '</td>' +
-                            '<td>' + formatBytes(a.send || 0) + '</td>' +
-                            '<td>' + (a.connectNum || 0) + '</td>' +
-                            '<td>' + (a.packNum || 0) + '</td>' +
-                            '<td>' + (a.createTime || '-') + '</td>' +
-                            '</tr>';
-                    }
-                } else {
-                    tabData = '<tr><td colspan="8" style="text-align: center; padding: 2rem;">暂无数据</td></tr>';
-                }
-                $("#tabData").html(tabData);
-            }).fail(function() {
-                $("#tabData").html('<tr><td colspan="8" style="text-align: center; padding: 2rem;">加载失败</td></tr>');
-            });
-        }
-
-        function formatBytes(bytes) {
-            if (bytes === 0) return '0 B';
-            if (!bytes) return '0 B';
-            
-            const k = 1024;
-            const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-            const i = Math.floor(Math.log(bytes) / Math.log(k));
-            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-        }
-    </script>
+  <script src="common/js/pages/log.js"></script>
 </body>
 </html>

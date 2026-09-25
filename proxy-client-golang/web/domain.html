@@ -1,276 +1,100 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN" data-theme="light">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
-    <meta name="renderer" content="webkit">
-    <meta http-equiv="Cache-Control" content="no-siteapp">
-    <meta name="format-detection" content="telephone=no">
-    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
-    <link rel="stylesheet" href="common/css/proxy-beauty.css">
-    <script src="/api.js"></script>
-    <script src="common/js/jquery.min.js"></script>
-    <title>域名管理 - Proxy内网穿透</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <meta name="referrer" content="no-referrer">
+  <title>域名管理 · Proxy 控制台</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%232f6bff' d='M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="common/css/app.css">
+  <script src="/api.js"></script>
+  <script src="common/js/app.js"></script>
 </head>
 <body>
-    <header class="app-header">
-        <button class="menu-toggle" id="menuToggle">
-            <i class="material-icons">menu</i>
-        </button>
-        <a href="center.html" class="logo">Proxy<span>内网穿透</span></a>
-        <div class="header-spacer"></div>
-        <div class="user-info">
-            <span class="user-badge" id="userInfoDisplay">
-                <span id="username">***</span>
-            </span>
-            <button class="logout-btn" id="login_out">
-                <i class="material-icons show-mobile" style="font-size: 1.2rem;">exit_to_app</i>
-                <span class="hide-mobile">退出</span>
+  <div class="app">
+    <header class="app-header" id="appHeader"></header>
+    <div class="app-body">
+      <nav class="side-nav" id="sideNav" aria-label="主导航"></nav>
+      <button type="button" class="scrim" id="scrim" aria-label="关闭菜单" tabindex="-1"></button>
+
+      <main class="content" id="content">
+        <div class="page-head">
+          <div>
+            <h1 class="page-head__title">域名管理</h1>
+            <p class="page-head__desc">管理隧道可用的二级域名：二级域名只能包含字母和数字，自定义域名可选填，用于绑定自己的域名。</p>
+          </div>
+          <div class="toolbar">
+            <button type="button" class="btn btn--primary" id="addBtn">
+              <span data-icon="plus"></span><span>添加域名</span>
             </button>
-        </div>
-    </header>
-
-    <div class="sidebar-overlay" id="sidebarOverlay"></div>
-    
-    <aside class="sidebar" id="sidebar">
-        <nav class="sidebar-nav">
-            <a href="center.html" class="nav-item">
-                <i class="material-icons">near_me</i>
-                <span>穿透服务</span>
-            </a>
-            <a href="port.html" class="nav-item">
-                <i class="material-icons">dns</i>
-                <span>端口管理</span>
-            </a>
-            <a href="domain.html" class="nav-item active">
-                <i class="material-icons">language</i>
-                <span>域名管理</span>
-            </a>
-            <a href="autoproxy.html" class="nav-item">
-                <i class="material-icons">autorenew</i>
-                <span>自动穿透</span>
-            </a>
-            <a href="log.html" class="nav-item">
-                <i class="material-icons">history</i>
-                <span>穿透日志</span>
-            </a>
-        </nav>
-    </aside>
-
-    <main class="main-content" id="mainContent">
-        <div class="mb-3">
-            <button class="btn btn-primary" onclick="openAddDialog()">
-                <i class="material-icons" style="font-size: 1.25rem;">add</i>
-                <span class="hide-mobile">添加域名</span>
+            <button type="button" class="btn btn--ghost" id="refreshBtn">
+              <span data-icon="refresh"></span><span class="hide-sm">刷新</span>
             </button>
+          </div>
         </div>
 
-        <div class="card">
-            <div class="card-header">
-                <h3 class="card-title">域名列表</h3>
-            </div>
-            <div class="card-body p-0">
-                <div class="table-responsive">
-                    <table class="table">
-                        <thead>
-                            <tr>
-                                <th>二级域名</th>
-                                <th>自定义域名</th>
-                                <th>操作</th>
-                            </tr>
-                        </thead>
-                        <tbody id="tabData"></tbody>
-                    </table>
-                </div>
-            </div>
+        <div class="alert alert--info">
+          <span data-icon="info"></span>
+          <div>如何配置自定义域名：在域名服务商处添加 CNAME 记录，指向系统分配给你的二级域名。</div>
         </div>
-    </main>
 
-    <!-- 添加域名对话框 -->
-    <div class="modal" id="addModal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3 class="modal-title">添加域名</h3>
-                <button class="modal-close" onclick="closeAddDialog()">&times;</button>
+        <section class="card">
+          <div class="card__head">
+            <h2 class="card__title"><span data-icon="globe"></span>域名列表</h2>
+            <div class="toolbar">
+              <input class="input" id="search" type="search" placeholder="搜索域名" aria-label="搜索域名" style="width: 12rem;">
             </div>
-            <form id="domainForm">
-                <div class="modal-body">
-                    <input type="hidden" id="userInfo" name="userId">
-                    
-                    <div class="form-group">
-                        <label class="form-label">二级域名 <span class="text-secondary">(字母数字)</span></label>
-                        <input class="form-input" id="domain" name="domain" placeholder="例如: myapp" type="text">
-                    </div>
-                    
-                    <div class="form-group">
-                        <label class="form-label">自定义域名 <span class="text-secondary">(可选)</span></label>
-                        <input class="form-input" id="customDomain" name="customDomain" 
-                               placeholder="例如: www.example.com" type="text">
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-outline" onclick="closeAddDialog()">取消</button>
-                    <button type="button" class="btn btn-primary" id="add_btn">确定</button>
-                </div>
-            </form>
-        </div>
+          </div>
+          <div class="card__body card__body--flush">
+            <div class="table-wrap">
+              <table class="table table--stack">
+                <thead>
+                  <tr>
+                    <th class="is-sortable" data-sort="domain" data-sort-type="string">二级域名<span class="sort-ind">↕</span></th>
+                    <th class="is-sortable" data-sort="customDomain" data-sort-type="string">自定义域名<span class="sort-ind">↕</span></th>
+                    <th style="text-align: right;">操作</th>
+                  </tr>
+                </thead>
+                <tbody id="tabData"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="card__foot" id="listFoot">正在加载域名列表…</div>
+        </section>
+      </main>
     </div>
+  </div>
 
-    <script>
-        var userInfo = null;
+  <!-- 添加域名 -->
+  <div class="modal" id="addModal" role="dialog" aria-modal="true" aria-labelledby="addModalTitle">
+    <div class="modal__panel">
+      <div class="modal__head">
+        <h3 class="modal__title" id="addModalTitle">添加域名</h3>
+        <button type="button" class="btn btn--ghost btn--icon" id="addClose" aria-label="关闭">
+          <span data-icon="close"></span>
+        </button>
+      </div>
+      <div class="modal__body">
+        <form id="domainForm" novalidate>
+          <div class="field">
+            <label class="field__label" for="domain">二级域名<span class="field__hint">只能包含字母和数字，例如 myapp</span></label>
+            <input class="input" id="domain" name="domain" type="text" placeholder="例如 myapp" autocomplete="off" autocapitalize="off" spellcheck="false" data-autofocus="true">
+          </div>
+          <div class="field">
+            <label class="field__label" for="customDomain">自定义域名<span class="field__hint">可选，例如 cdn.example.com</span></label>
+            <input class="input" id="customDomain" name="customDomain" type="text" placeholder="留空则只使用二级域名" autocomplete="off" autocapitalize="off" spellcheck="false">
+            <p class="faint text-xs mt-2">填写后需在域名服务商处把该域名 CNAME 指向分配到的二级域名，解析生效后方可访问。</p>
+          </div>
+        </form>
+      </div>
+      <div class="modal__foot">
+        <button type="button" class="btn btn--ghost" id="addCancel">取消</button>
+        <button type="button" class="btn btn--primary" id="addSubmit">确定添加</button>
+      </div>
+    </div>
+  </div>
 
-        $(function() {
-            var storedUserInfo = localStorage.getItem("userInfo");
-            if (!storedUserInfo) {
-                location.href = "login.html";
-                return;
-            }
-            
-            userInfo = JSON.parse(storedUserInfo);
-            $("#username").text(userInfo.username || "***");
-            $("#userInfo").val(userInfo.id || "");
-            
-            $("#login_out").click(function() {
-                localStorage.removeItem("userInfo");
-                location.href = "login.html";
-            });
-
-            $("#menuToggle").click(function() {
-                $("#sidebar").addClass("open");
-                $("#sidebarOverlay").addClass("active");
-                $("body").css("overflow", "hidden");
-            });
-
-            $("#sidebarOverlay").click(function() {
-                $("#sidebar").removeClass("open");
-                $("#sidebarOverlay").removeClass("active");
-                $("body").css("overflow", "");
-            });
-
-            $(window).resize(function() {
-                if ($(window).width() >= 1024) {
-                    $("#sidebar").removeClass("open");
-                    $("#sidebarOverlay").removeClass("active");
-                    $("body").css("overflow", "");
-                }
-            });
-
-            loadDomainList();
-        });
-
-        function openAddDialog() {
-            $("#addModal").addClass("open");
-            $("body").css("overflow", "hidden");
-        }
-
-        function closeAddDialog() {
-            $("#addModal").removeClass("open");
-            $("body").css("overflow", "");
-            $("#domain").val("");
-            $("#customDomain").val("");
-        }
-
-        function loadDomainList() {
-            if (!userInfo || !userInfo.id) return;
-            
-            $.get(apiAddress + "/server/domainList?userId=" + userInfo.id, function(result) {
-                var tabData = "";
-                if (result.code === 200 && result.data && result.data.length > 0) {
-                    for (let a of result.data) {
-                        tabData += '<tr>' +
-                            '<td>' + (a.domain || '-') + '</td>' +
-                            '<td>' + (a.customDomain || '-') + '</td>' +
-                            '<td>' +
-                            '<button class="btn btn-danger btn-sm" onclick="deleteDomain(\'' + (a.domain || '') + '\')">' +
-                            '<i class="material-icons" style="font-size: 1.25rem;">delete</i>' +
-                            '<span class="hide-mobile">删除</span>' +
-                            '</button>' +
-                            '</td>' +
-                            '</tr>';
-                    }
-                } else {
-                    tabData = '<tr><td colspan="3" style="text-align: center; padding: 2rem;">暂无数据</td></tr>';
-                }
-                $("#tabData").html(tabData);
-            }).fail(function() {
-                $("#tabData").html('<tr><td colspan="3" style="text-align: center; padding: 2rem;">加载失败</td></tr>');
-            });
-        }
-
-        function deleteDomain(domain) {
-            if (!domain) {
-                alert("无效的域名");
-                return;
-            }
-            if (confirm("确定删除？")) {
-                $.post(apiAddress + "/server/domainRemove", {
-                    userId: userInfo.id, 
-                    domain: domain
-                }, function(result) {
-                    alert(result.msg || "操作成功");
-                    reloadUserInfo();
-                }).fail(function() {
-                    alert("操作失败");
-                });
-            }
-        }
-
-        $("#add_btn").click(function() {
-            var userId = $("#userInfo").val();
-            var domain = $("#domain").val().trim();
-            var customDomain = $("#customDomain").val().trim();
-            
-            if (!userId) {
-                alert("用户信息错误");
-                return;
-            }
-            
-            if (!domain) {
-                alert("请输入二级域名");
-                return;
-            }
-            
-            if (!/^[a-zA-Z0-9]+$/.test(domain)) {
-                alert("二级域名只能包含字母和数字");
-                return;
-            }
-            
-            $.post(apiAddress + "/server/domainAdd", {
-                userId: userId, 
-                domain: domain, 
-                customDomain: customDomain || ""
-            }, function(result) {
-                if (result.code === 200) {
-                    alert(result.msg || "添加成功");
-                    closeAddDialog();
-                    reloadUserInfo();
-                } else {
-                    alert(result.msg || "添加失败");
-                }
-            }).fail(function() {
-                alert("网络错误");
-            });
-        });
-
-        function reloadUserInfo() {
-            if (!userInfo) return;
-            
-            $.post(apiAddress + "/user/login", {
-                username: userInfo.username, 
-                password: userInfo.password
-            }, function(result) {
-                if (result.code === 200) {
-                    localStorage.setItem("userInfo", JSON.stringify(result.data));
-                    userInfo = result.data;
-                    loadDomainList();
-                } else {
-                    alert(result.msg || "刷新失败");
-                }
-            }).fail(function() {
-                alert("网络错误");
-            });
-        }
-    </script>
+  <script src="common/js/pages/domain.js"></script>
 </body>
 </html>

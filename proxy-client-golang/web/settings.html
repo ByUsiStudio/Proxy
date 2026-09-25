@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <meta name="referrer" content="no-referrer">
+  <title>设置与分享 · Proxy 控制台</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%232f6bff' d='M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="common/css/app.css">
+  <script src="/api.js"></script>
+  <script src="common/js/app.js"></script>
+</head>
+<body>
+  <div class="app">
+    <header class="app-header" id="appHeader"></header>
+    <div class="app-body">
+      <nav class="side-nav" id="sideNav" aria-label="主导航"></nav>
+      <button type="button" class="scrim" id="scrim" aria-label="关闭菜单" tabindex="-1"></button>
+
+      <main class="content" id="content">
+        <div class="page-head">
+          <div>
+            <h1 class="page-head__title">设置与分享</h1>
+            <p class="page-head__desc">外观偏好、控制台安全状态、隧道配置的导出与导入，以及需要谨慎执行的清理操作。</p>
+          </div>
+        </div>
+
+        <!-- 外观 -->
+        <section class="card">
+          <div class="card__head">
+            <h2 class="card__title"><span data-icon="sun"></span>外观</h2>
+            <span class="card__hint">选择仅保存在当前设备</span>
+          </div>
+          <div class="card__body">
+            <div class="row row--between">
+              <div class="grow">
+                <div class="text-sm bold">主题模式</div>
+                <div class="text-xs muted mt-2">
+                  主题选择会记住在这台设备的浏览器中，重新打开控制台仍然生效；「跟随系统」会随操作系统的深浅色设置自动切换，不写入固定值。
+                </div>
+              </div>
+              <div id="themeSlot"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card__head">
+            <h2 class="card__title"><span data-icon="shieldCheck"></span>控制台安全</h2>
+            <span class="card__hint">本机接口 /console/info</span>
+          </div>
+          <div class="card__body stack">
+            <div class="stack" id="consoleRows" aria-live="polite">
+              <div class="text-xs muted">正在读取控制台信息…</div>
+            </div>
+            <div class="alert alert--info">
+              <span data-icon="shield"></span>
+              <div class="stack">
+                <div>控制台默认只监听 127.0.0.1，仅本机可访问，不对外暴露管理接口。</div>
+                <div>如需局域网访问，请用 <span class="mono">-webHost 0.0.0.0 -webToken &lt;令牌&gt;</span> 启动，再用 <span class="mono">http://主机:端口/?token=&lt;令牌&gt;</span> 打开控制台。</div>
+                <div>所有控制类接口都要求同源会话，跨站请求会被直接拒绝。</div>
+              </div>
+            </div>
+          </div>
+          <div class="card__foot">
+            <div class="toolbar">
+              <button type="button" class="btn btn--ghost btn--sm" id="reverifyBtn">
+                <span data-icon="key"></span><span>重新验证密码</span>
+              </button>
+              <button type="button" class="btn btn--ghost btn--sm" id="logoutBtn">
+                <span data-icon="logout"></span><span>退出登录</span>
+              </button>
+              <button type="button" class="btn btn--ghost btn--sm" id="refreshInfoBtn">
+                <span data-icon="refresh"></span><span>刷新状态</span>
+              </button>
+              <span class="text-xs faint" id="consoleFoot">正在读取…</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card__head">
+            <h2 class="card__title"><span data-icon="share"></span>配置导出 / 导入 / 分享</h2>
+            <span class="card__hint">用于迁移或分享隧道配置</span>
+          </div>
+          <div class="card__body stack">
+
+            <div class="stack">
+              <label class="switch">
+                <input type="checkbox" id="withSecrets">
+                <span class="switch__track"></span>
+                <span>包含凭据（用户名 / 密码）</span>
+              </label>
+              <div class="alert alert--warn hidden" id="secretWarn">
+                <span data-icon="warn"></span>
+                <span>勾选后导出的 JSON 与二维码会带上账号密码，等同于把密码本身交出去，请勿公开分享、张贴或上传到任何公共渠道。</span>
+              </div>
+              <p class="text-xs faint mb-0">默认不含凭据，导出的配置只能用于本机已经登录的账号环境；仅在自己信任的设备之间迁移时才勾选。</p>
+            </div>
+
+            <div class="field">
+              <label class="field__label" for="exportText">
+                导出配置
+                <span class="field__hint">只读文本，可直接全选复制</span>
+              </label>
+              <textarea class="textarea" id="exportText" readonly placeholder="点击「导出」读取当前隧道配置"></textarea>
+            </div>
+
+            <div class="row row--between">
+              <div class="toolbar">
+                <button type="button" class="btn btn--primary btn--sm" id="exportBtn">
+                  <span data-icon="download"></span><span>导出</span>
+                </button>
+                <button type="button" class="btn btn--ghost btn--sm" id="qrBtn">
+                  <span data-icon="qr"></span><span>生成二维码</span>
+                </button>
+                <button type="button" class="btn btn--ghost btn--sm" id="downloadBtn" disabled>
+                  <span data-icon="arrowDown"></span><span>下载 JSON</span>
+                </button>
+                <button type="button" class="btn btn--ghost btn--sm" id="copyBtn" disabled>
+                  <span data-icon="copy"></span><span>复制</span>
+                </button>
+              </div>
+              <span class="text-xs faint" id="exportMeta">尚未导出</span>
+            </div>
+
+            <div class="stack">
+              <div class="qr hidden" id="qrBox">
+                <img class="qr-img" id="qrImg" alt="配置二维码" decoding="async">
+              </div>
+              <div class="text-xs muted" id="qrMeta">分享文本使用紧凑格式，以便装入二维码。</div>
+              <div class="alert alert--warn hidden" id="qrWarn">
+                <span data-icon="warn"></span>
+                <span id="qrWarnText"></span>
+              </div>
+            </div>
+
+            <div class="alert alert--info">
+              <span data-icon="key"></span>
+              <div class="stack">
+                <div>导入需要账号密码：配置里缺少 username / password 时，控制台会先弹窗向你索取当前账号密码（与「重新验证密码」相同），再把缺失的凭据补全进待导入的隧道后一次性提交。</div>
+                <div>补全只在内存中完成，密码仅保存在当前标签页的会话存储里，不会写入磁盘。</div>
+              </div>
+            </div>
+
+            <div class="field">
+              <label class="field__label" for="importText">
+                导入配置
+                <span class="field__hint">支持完整导出对象，或直接粘贴隧道数组</span>
+              </label>
+              <textarea class="textarea" id="importText" placeholder="粘贴导出的 JSON 配置"></textarea>
+            </div>
+
+            <div class="row row--between">
+              <div class="row">
+                <label class="field__label" for="importFile">
+                  从文件读取
+                  <span class="field__hint">仅支持 .json 文件，读取后填入上方文本框</span>
+                </label>
+                <input type="file" id="importFile" accept=".json,application/json" aria-label="从文件读取配置">
+              </div>
+              <button type="button" class="btn btn--primary btn--sm" id="importBtn">
+                <span data-icon="upload"></span><span>导入</span>
+              </button>
+            </div>
+
+            <div class="alert alert--info hidden" id="importResult" aria-live="polite"></div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card__head">
+            <h2 class="card__title"><span data-icon="danger"></span>危险操作</h2>
+            <span class="card__hint">执行前请确认影响范围</span>
+          </div>
+          <div class="card__body stack">
+            <div class="alert alert--danger">
+              <span data-icon="warn"></span>
+              <span>以下操作会立即中断正在转发的外部访问或清除本机登录状态，请确认无误后再执行。</span>
+            </div>
+
+            <div class="row row--between">
+              <div class="grow">
+                <div class="text-sm bold">停止全部隧道</div>
+                <div class="text-xs muted mt-2" id="tunnelCount">正在读取隧道数量…</div>
+              </div>
+              <button type="button" class="btn btn--danger btn--sm" id="stopAllBtn">
+                <span data-icon="stop"></span><span>停止全部隧道</span>
+              </button>
+            </div>
+
+            <div class="row row--between">
+              <div class="grow">
+                <div class="text-sm bold">清除本地登录状态</div>
+                <div class="text-xs muted mt-2">清除本设备保存的账号资料与会话密码，之后需要重新登录。</div>
+              </div>
+              <button type="button" class="btn btn--ghost btn--sm" id="clearLoginBtn">
+                <span data-icon="logout"></span><span>清除本地登录状态</span>
+              </button>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <script src="common/js/pages/settings.js"></script>
+</body>
+</html>

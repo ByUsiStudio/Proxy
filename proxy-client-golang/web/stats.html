@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <meta name="referrer" content="no-referrer">
+  <title>数据统计 · Proxy 控制台</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%232f6bff' d='M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="common/css/app.css">
+  <script src="/api.js"></script>
+  <script src="common/js/app.js"></script>
+</head>
+<body>
+  <div class="app">
+    <header class="app-header" id="appHeader"></header>
+    <div class="app-body">
+      <nav class="side-nav" id="sideNav" aria-label="主导航"></nav>
+      <button type="button" class="scrim" id="scrim" aria-label="关闭菜单" tabindex="-1"></button>
+
+      <main class="content" id="content">
+        <div class="page-head">
+          <div>
+            <h1 class="page-head__title">数据统计</h1>
+            <p class="page-head__desc">本机隧道的实时流量与连接趋势，并汇总云端历史流量记录。</p>
+          </div>
+          <div class="toolbar">
+            <a class="btn btn--ghost btn--sm" href="log.html">
+              <span data-icon="list"></span><span class="hide-sm">运行日志</span>
+            </a>
+            <button type="button" class="btn btn--ghost btn--sm" id="refreshAll">
+              <span data-icon="refresh"></span><span>刷新</span>
+            </button>
+          </div>
+        </div>
+
+        <section class="grid grid--tight" aria-label="运行概览">
+          <div class="kpi">
+            <span class="kpi__icon" data-icon="rocket"></span>
+            <div class="kpi__body">
+              <div class="kpi__value" id="kpiTunnels">—</div>
+              <div class="kpi__label">隧道总数</div>
+            </div>
+          </div>
+          <div class="kpi">
+            <span class="kpi__icon kpi__icon--down" data-icon="activity"></span>
+            <div class="kpi__body">
+              <div class="kpi__value" id="kpiOnline">—</div>
+              <div class="kpi__label">在线隧道</div>
+            </div>
+          </div>
+          <div class="kpi">
+            <span class="kpi__icon kpi__icon--warn" data-icon="link"></span>
+            <div class="kpi__body">
+              <div class="kpi__value" id="kpiConns">—</div>
+              <div class="kpi__label">活跃连接</div>
+            </div>
+          </div>
+          <div class="kpi">
+            <span class="kpi__icon kpi__icon--up" data-icon="arrowDown"></span>
+            <div class="kpi__body">
+              <div class="kpi__value" id="kpiIn">—</div>
+              <div class="kpi__label">累计入站</div>
+            </div>
+          </div>
+          <div class="kpi">
+            <span class="kpi__icon" data-icon="arrowUp"></span>
+            <div class="kpi__body">
+              <div class="kpi__value" id="kpiOut">—</div>
+              <div class="kpi__label">累计出站</div>
+            </div>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="card__head">
+            <h2 class="card__title"><span data-icon="chart"></span>本地实时流量</h2>
+            <div class="toolbar">
+              <label class="switch" title="每 5 秒刷新本页的实时数据">
+                <input type="checkbox" id="autoRefresh" checked>
+                <span class="switch__track"></span>
+                <span>自动刷新</span>
+              </label>
+              <span class="text-xs faint nums" id="trafficStamp">更新于 —</span>
+            </div>
+          </div>
+          <div class="card__body">
+            <div class="chart">
+              <canvas id="trafficChart" role="img" aria-label="各隧道入站与出站流量对比"></canvas>
+            </div>
+            <div class="legend" id="trafficLegend"></div>
+          </div>
+          <div class="card__foot" id="trafficFoot">正在加载隧道流量…</div>
+        </section>
+
+        <section class="card">
+          <div class="card__head">
+            <h2 class="card__title"><span data-icon="activity"></span>连接数趋势</h2>
+            <span class="card__hint">本曲线由本机每 5 秒采样生成，最多保留最近 30 个采样点</span>
+          </div>
+          <div class="card__body">
+            <div class="chart">
+              <canvas id="connChart" role="img" aria-label="活跃连接数变化趋势"></canvas>
+            </div>
+            <div class="legend" id="connLegend"></div>
+          </div>
+          <div class="card__foot" id="connFoot">等待首个采样点…</div>
+        </section>
+
+        <section class="card">
+          <div class="card__head">
+            <h2 class="card__title"><span data-icon="inbox"></span>云端流量记录</h2>
+            <div class="toolbar">
+              <span class="text-xs faint nums" id="cloudStamp">更新于 —</span>
+              <button type="button" class="btn btn--ghost btn--sm" id="cloudRefresh">
+                <span data-icon="refresh"></span><span>刷新</span>
+              </button>
+            </div>
+          </div>
+          <div class="card__body card__body--flush">
+            <div class="table-wrap">
+              <table class="table table--stack" id="cloudTable">
+                <thead>
+                  <tr>
+                    <th class="is-sortable table__num" data-sort="id" data-sort-type="number">ID<span class="sort-ind">↕</span></th>
+                    <th class="is-sortable table__num" data-sort="port" data-sort-type="number">端口<span class="sort-ind">↕</span></th>
+                    <th class="is-sortable table__num" data-sort="receive" data-sort-type="number">接收<span class="sort-ind">↕</span></th>
+                    <th class="is-sortable table__num" data-sort="send" data-sort-type="number">发送<span class="sort-ind">↕</span></th>
+                    <th class="is-sortable table__num" data-sort="connectNum" data-sort-type="number">连接数<span class="sort-ind">↕</span></th>
+                    <th class="is-sortable table__num" data-sort="packNum" data-sort-type="number">数据包<span class="sort-ind">↕</span></th>
+                    <th class="is-sortable" data-sort="createTime" data-sort-type="string">时间<span class="sort-ind">↕</span></th>
+                  </tr>
+                </thead>
+                <tbody id="cloudRows"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="card__foot" id="cloudFoot">正在加载云端流量记录…</div>
+        </section>
+
+        <section class="card">
+          <div class="card__head">
+            <h2 class="card__title"><span data-icon="shield"></span>会话信息</h2>
+            <span class="badge badge--muted" id="tokenBadge" role="status">读取中…</span>
+          </div>
+          <div class="card__body">
+            <div class="stack">
+              <div class="row row--between">
+                <span class="muted text-sm">内核版本</span>
+                <span class="text-sm bold nums" id="coreVersion">—</span>
+              </div>
+              <div class="row row--between">
+                <span class="muted text-sm">设备标识</span>
+                <span class="mono truncate" id="deviceId">—</span>
+              </div>
+              <div class="row row--between">
+                <span class="muted text-sm">控制台地址</span>
+                <span class="mono truncate" id="consoleAddress">—</span>
+              </div>
+              <div class="row row--between">
+                <span class="muted text-sm">云端接口</span>
+                <span class="mono truncate" id="apiUrl">—</span>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+  </div>
+
+  <script src="common/js/pages/stats.js"></script>
+</body>
+</html>

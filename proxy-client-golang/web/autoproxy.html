@@ -1,382 +1,143 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN" data-theme="light">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
-    <meta name="renderer" content="webkit">
-    <meta http-equiv="Cache-Control" content="no-siteapp">
-    <meta name="format-detection" content="telephone=no">
-    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
-    <link rel="stylesheet" href="common/css/proxy-beauty.css">
-    <script src="/api.js"></script>
-    <script src="common/js/jquery.min.js"></script>
-    <title>自动穿透 - Proxy内网穿透</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <meta name="referrer" content="no-referrer">
+  <title>自动穿透 · Proxy 控制台</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%232f6bff' d='M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="common/css/app.css">
+  <script src="/api.js"></script>
+  <script src="common/js/app.js"></script>
 </head>
 <body>
-    <header class="app-header">
-        <button class="menu-toggle" id="menuToggle">
-            <i class="material-icons">menu</i>
-        </button>
-        <a href="center.html" class="logo">Proxy<span>内网穿透</span></a>
-        <div class="header-spacer"></div>
-        <div class="user-info">
-            <span class="user-badge" id="userInfoDisplay">
-                <span id="username">***</span>
+  <div class="app">
+    <header class="app-header" id="appHeader"></header>
+    <div class="app-body">
+      <nav class="side-nav" id="sideNav" aria-label="主导航"></nav>
+      <button type="button" class="scrim" id="scrim" aria-label="关闭菜单" tabindex="-1"></button>
+
+      <main class="content" id="content">
+        <div class="page-head">
+          <div>
+            <h1 class="page-head__title">自动穿透</h1>
+            <p class="page-head__desc">把穿透配置保存到云端，客户端带 -deviceId 启动时会自动创建这些隧道。</p>
+          </div>
+          <div class="toolbar">
+            <button type="button" class="btn btn--primary" id="addBtn" disabled>
+              <span data-icon="plus"></span><span>添加配置</span>
+            </button>
+            <button type="button" class="btn btn--ghost" id="refreshBtn">
+              <span data-icon="refresh"></span><span class="hide-sm">刷新</span>
+            </button>
+            <span class="chip" id="deviceChip" title="当前设备ID">
+              <span class="muted">设备ID</span>
+              <span class="mono" id="deviceIdValue">获取中…</span>
             </span>
-            <button class="logout-btn" id="login_out">
-                <i class="material-icons show-mobile" style="font-size: 1.2rem;">exit_to_app</i>
-                <span class="hide-mobile">退出</span>
-            </button>
-        </div>
-    </header>
-
-    <div class="sidebar-overlay" id="sidebarOverlay"></div>
-    
-    <aside class="sidebar" id="sidebar">
-        <nav class="sidebar-nav">
-            <a href="center.html" class="nav-item">
-                <i class="material-icons">near_me</i>
-                <span>穿透服务</span>
-            </a>
-            <a href="port.html" class="nav-item">
-                <i class="material-icons">dns</i>
-                <span>端口管理</span>
-            </a>
-            <a href="domain.html" class="nav-item">
-                <i class="material-icons">language</i>
-                <span>域名管理</span>
-            </a>
-            <a href="autoproxy.html" class="nav-item active">
-                <i class="material-icons">autorenew</i>
-                <span>自动穿透</span>
-            </a>
-            <a href="log.html" class="nav-item">
-                <i class="material-icons">history</i>
-                <span>穿透日志</span>
-            </a>
-        </nav>
-    </aside>
-
-    <main class="main-content" id="mainContent">
-        <div class="flex justify-between items-center mb-3">
-            <button class="btn btn-primary" onclick="openAddDialog()">
-                <i class="material-icons" style="font-size: 1.25rem;">add</i>
-                <span class="hide-mobile">添加穿透配置</span>
-            </button>
-            <div class="device-badge">
-                <i class="material-icons" style="font-size: 1rem;">devices</i>
-                <span id="deviceIdText">未设置ID</span>
-            </div>
+          </div>
         </div>
 
-        <div class="card">
-            <div class="card-header">
-                <h3 class="card-title">穿透配置列表</h3>
+        <div class="alert alert--warn hidden" id="deviceWarn" role="status">
+          <span data-icon="warn"></span>
+          <div>
+            <div class="bold">当前客户端没有可用的设备ID，自动穿透无法使用</div>
+            <div class="text-xs mt-2">
+              自动穿透按设备ID识别客户端，请在启动时追加参数
+              <span class="mono">-deviceId=你的设备ID</span>
+              （设备ID 为 10-36 位字母数字组合）。设置完成并重启客户端后，本页会自动恢复可用。
             </div>
-            <div class="card-body p-0">
-                <div class="table-responsive">
-                    <table class="table">
-                        <thead>
-                            <tr>
-                                <th>设备ID</th>
-                                <th>内网服务</th>
-                                <th>外网服务</th>
-                                <th>类型</th>
-                                <th>域名</th>
-                                <th>端口</th>
-                                <th>操作</th>
-                            </tr>
-                        </thead>
-                        <tbody id="tabData"></tbody>
-                    </table>
-                </div>
-            </div>
+          </div>
         </div>
 
-        <div class="card">
-            <div class="card-header">
-                <h3 class="card-title">功能说明</h3>
+        <section class="card">
+          <div class="card__head">
+            <h2 class="card__title"><span data-icon="sync"></span>云端穿透配置</h2>
+            <div class="toolbar">
+              <input class="input" id="search" type="search" placeholder="搜索设备ID / 内网服务 / 服务器 / 域名" style="width: 15rem;">
             </div>
-            <div class="card-body">
-                <p class="text-secondary mb-3">
-                    当前设备ID: <strong id="deviceId">未设置</strong>
-                </p>
-                <p class="text-xs text-secondary">
-                    添加云端存储后，Proxy启动时自动加载配置进行穿透，减少重复配置。
-                </p>
-                <div class="mt-3">
-                    <h4 class="text-sm" style="font-weight: 600; margin-bottom: var(--space-2);">如何设置:</h4>
-                    <ul class="text-xs text-secondary" style="padding-left: var(--space-4);">
-                        <li>设备ID：10-36位字母数字组合</li>
-                        <li>启动命令：proxy-client -deviceId=设备ID</li>
-                    </ul>
-                </div>
+          </div>
+          <div class="card__body card__body--flush">
+            <div class="table-wrap">
+              <table class="table table--stack">
+                <thead>
+                  <tr>
+                    <th class="is-sortable" data-sort="deviceId" data-sort-type="string">设备ID<span class="sort-ind">↕</span></th>
+                    <th class="is-sortable" data-sort="userHost" data-sort-type="string">内网服务<span class="sort-ind">↕</span></th>
+                    <th class="is-sortable" data-sort="serverHost" data-sort-type="string">穿透服务器<span class="sort-ind">↕</span></th>
+                    <th class="is-sortable" data-sort="type" data-sort-type="string">类型<span class="sort-ind">↕</span></th>
+                    <th class="is-sortable" data-sort="domain" data-sort-type="string">域名<span class="sort-ind">↕</span></th>
+                    <th class="is-sortable table__num" data-sort="port" data-sort-type="number">端口<span class="sort-ind">↕</span></th>
+                    <th style="text-align: right;">操作</th>
+                  </tr>
+                </thead>
+                <tbody id="tabData"></tbody>
+              </table>
             </div>
-        </div>
-    </main>
+          </div>
+          <div class="card__foot" id="listFoot">正在加载云端配置…</div>
+        </section>
 
-    <!-- 添加配置对话框 -->
-    <div class="modal" id="addModal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3 class="modal-title">添加穿透配置</h3>
-                <button class="modal-close" onclick="closeAddDialog()">&times;</button>
-            </div>
-            <form id="handle-form">
-                <div class="modal-body">
-                    <div class="form-group">
-                        <label class="form-label">内网服务</label>
-                        <input class="form-input" name="userHost" placeholder="例如: 127.0.0.1:8080" type="text">
-                    </div>
-
-                    <div class="form-group">
-                        <label class="form-label">穿透类型</label>
-                        <div class="radio-group">
-                            <label class="radio-label">
-                                <input type="radio" value="TCP" name="type" checked> TCP
-                            </label>
-                            <label class="radio-label">
-                                <input type="radio" value="UDP" name="type"> UDP
-                            </label>
-                            <label class="radio-label">
-                                <input type="radio" value="TCP_UDP" name="type"> TCP+UDP
-                            </label>
-                        </div>
-                    </div>
-
-                    <div class="form-group" id="server_data"></div>
-
-                    <div style="display: none;" class="form-group" id="showServerInfoInPut">
-                        <label class="form-label">自定义穿透服务</label>
-                        <input class="form-input" id="showServerInfoInPutVal" placeholder="ip:端口" type="text">
-                    </div>
-
-                    <div class="form-group" id="domains"></div>
-                    <div class="form-group" id="ports"></div>
-                </div>
-                <div class="modal-footer">
-                    <button type="button" class="btn btn-outline" onclick="closeAddDialog()">取消</button>
-                    <button type="button" class="btn btn-primary" id="add_btn">确定</button>
-                </div>
-            </form>
-        </div>
+        <section class="card">
+          <div class="card__head">
+            <h2 class="card__title"><span data-icon="info"></span>使用说明</h2>
+          </div>
+          <div class="card__body">
+            <ul class="text-sm muted" style="padding-inline-start: 1.25rem; display: grid; gap: var(--s-2);">
+              <li>设备ID 需为 10-36 位字母数字组合，并与客户端启动参数保持一致。</li>
+              <li>启动命令：<span class="mono">proxy-client -deviceId=你的设备ID</span>，客户端启动时会自动拉取云端配置建立隧道。</li>
+              <li>在控制台新增或删除配置后，需要重启客户端才会生效。</li>
+            </ul>
+          </div>
+        </section>
+      </main>
     </div>
+  </div>
 
-    <script>
-        var userInfo = null;
-        var deviceId = "NO_ID";
+  <!-- 添加自动穿透配置 -->
+  <div class="modal" id="addModal" role="dialog" aria-modal="true" aria-labelledby="addModalTitle">
+    <div class="modal__panel">
+      <div class="modal__head">
+        <h3 class="modal__title" id="addModalTitle">添加自动穿透配置</h3>
+        <button type="button" class="btn btn--ghost btn--icon" id="addClose" aria-label="关闭">
+          <span data-icon="close"></span>
+        </button>
+      </div>
+      <div class="modal__body">
+        <form id="addForm" novalidate>
+          <div class="field">
+            <label class="field__label" for="userHost">内网服务<span class="field__hint">被穿透服务所在的内网地址，格式为 ip:端口</span></label>
+            <input class="input" id="userHost" name="userHost" type="text" placeholder="例如 127.0.0.1:8080" autocomplete="off">
+          </div>
+          <div class="field">
+            <span class="field__label">穿透类型</span>
+            <div class="radios" id="typeRadios"></div>
+          </div>
+          <div class="field">
+            <span class="field__label">穿透服务器</span>
+            <div class="radios" id="serverRadios"></div>
+          </div>
+          <div class="field hidden" id="customServerField">
+            <label class="field__label" for="customServer">自定义穿透服务器</label>
+            <input class="input" id="customServer" type="text" placeholder="ip:端口，例如 1.2.3.4:9090" autocomplete="off">
+          </div>
+          <div class="field" id="domainField">
+            <span class="field__label">穿透域名</span>
+            <div class="radios" id="domainRadios"></div>
+          </div>
+          <div class="field">
+            <span class="field__label">外网端口</span>
+            <div class="radios" id="portRadios"></div>
+          </div>
+        </form>
+      </div>
+      <div class="modal__foot">
+        <button type="button" class="btn btn--ghost" id="addCancel">取消</button>
+        <button type="button" class="btn btn--primary" id="addSubmit">确定添加</button>
+      </div>
+    </div>
+  </div>
 
-        $(function() {
-            var storedUserInfo = localStorage.getItem("userInfo");
-            if (!storedUserInfo) {
-                location.href = "login.html";
-                return;
-            }
-            
-            userInfo = JSON.parse(storedUserInfo);
-            $("#username").text(userInfo.username || "***");
-            
-            $("#login_out").click(function() {
-                localStorage.removeItem("userInfo");
-                location.href = "login.html";
-            });
-
-            $("#menuToggle").click(function() {
-                $("#sidebar").addClass("open");
-                $("#sidebarOverlay").addClass("active");
-                $("body").css("overflow", "hidden");
-            });
-
-            $("#sidebarOverlay").click(function() {
-                $("#sidebar").removeClass("open");
-                $("#sidebarOverlay").removeClass("active");
-                $("body").css("overflow", "");
-            });
-
-            $(window).resize(function() {
-                if ($(window).width() >= 1024) {
-                    $("#sidebar").removeClass("open");
-                    $("#sidebarOverlay").removeClass("active");
-                    $("body").css("overflow", "");
-                }
-            });
-
-            $.get("/device/info", function(result) {
-                if (result && result !== "NO_ID") {
-                    deviceId = result;
-                    $("#deviceIdText").text(result.slice(0, 4) + "..." + result.slice(-4));
-                    $("#deviceId").text(result);
-                }
-            }).fail(function() {
-                $("#deviceIdText").text("获取失败");
-            });
-
-            initPop();
-            loadConfigList();
-        });
-
-        function openAddDialog() {
-            $("#addModal").addClass("open");
-            $("body").css("overflow", "hidden");
-        }
-
-        function closeAddDialog() {
-            $("#addModal").removeClass("open");
-            $("body").css("overflow", "");
-            $("#handle-form")[0].reset();
-            $("#showServerInfoInPut").hide();
-        }
-
-        function initPop() {
-            if (!userInfo) return;
-            
-            var domainHtml = '<label class="form-label">穿透域名</label><div class="radio-group">';
-            if (userInfo.domains && Object.keys(userInfo.domains).length > 0) {
-                for (let a of Object.keys(userInfo.domains)) {
-                    domainHtml += '<label class="radio-label">' +
-                        '<input type="radio" value="' + a + '" name="domain"> ' + a +
-                        '</label>';
-                }
-            } else {
-                domainHtml += '<span class="text-xs text-secondary">暂无可用域名</span>';
-            }
-            domainHtml += '</div>';
-            $("#domains").html(domainHtml);
-
-            var portsHtml = '<label class="form-label">外网端口</label><div class="radio-group">' +
-                '<label class="radio-label">' +
-                '<input type="radio" value="0" name="port" checked> 随机' +
-                '</label>';
-            if (userInfo.ports && userInfo.ports.length > 0) {
-                for (let a of userInfo.ports) {
-                    portsHtml += '<label class="radio-label">' +
-                        '<input type="radio" value="' + a + '" name="port"> ' + a +
-                        '</label>';
-                }
-            }
-            portsHtml += '</div>';
-            $("#ports").html(portsHtml);
-
-            $.get(apiAddress + "/load/data", function(result) {
-                var serverData = (result.code === 200 && result.data) ? result.data : [];
-                var serverDataHtml = '<label class="form-label">穿透服务</label><div class="radio-group">';
-                
-                for (let a of serverData) {
-                    serverDataHtml += '<label class="radio-label">' +
-                        '<input type="radio" value="' + a.ip + ':' + a.port + '" name="serverHost"> ' +
-                        a.name + '(' + (a.num || 0) + ')' +
-                        '</label>';
-                }
-                serverDataHtml += '<label class="radio-label">' +
-                    '<input type="radio" value="-1" name="serverHost"> 自定义' +
-                    '</label></div>';
-                
-                $("#server_data").html(serverDataHtml);
-
-                $("input[name='serverHost']").on("click", function() {
-                    if ($(this).val() == -1) {
-                        $("#showServerInfoInPut").show();
-                    } else {
-                        $("#showServerInfoInPut").hide();
-                    }
-                });
-
-                $("input[name='type']").on("click", function() {
-                    if ($(this).val() == 'UDP') {
-                        $("#domains").hide();
-                    } else {
-                        $("#domains").show();
-                    }
-                });
-            }).fail(function() {
-                $("#server_data").html('<div class="text-secondary">加载失败</div>');
-            });
-        }
-
-        function loadConfigList() {
-            if (!userInfo || !userInfo.id) return;
-            
-            $.get(apiAddress + "/config/list?userId=" + userInfo.id, function(result) {
-                var tabData = "";
-                if (result.data && result.data.length > 0) {
-                    for (let a of result.data) {
-                        tabData += '<tr>' +
-                            '<td>' + (a.deviceId ? a.deviceId.slice(0, 4) + '...' : '-') + '</td>' +
-                            '<td>' + (a.userHost || '-') + '</td>' +
-                            '<td>' + (a.serverHost || '-') + '</td>' +
-                            '<td>' + (a.type || '-') + '</td>' +
-                            '<td>' + (a.domain || '-') + '</td>' +
-                            '<td>' + (a.port || '-') + '</td>' +
-                            '<td>' +
-                            '<button class="btn btn-danger btn-sm" onclick="stop(\'' + a.id + '\')">' +
-                            '<i class="material-icons" style="font-size: 1.25rem;">delete</i>' +
-                            '<span class="hide-mobile">删除</span>' +
-                            '</button>' +
-                            '</td>' +
-                            '</tr>';
-                    }
-                } else {
-                    tabData = '<tr><td colspan="7" style="text-align: center; padding: 2rem;">暂无数据</td></tr>';
-                }
-                $("#tabData").html(tabData);
-            }).fail(function() {
-                $("#tabData").html('<tr><td colspan="7" style="text-align: center; padding: 2rem;">加载失败</td></tr>');
-            });
-        }
-
-        function stop(id) {
-            if (confirm("确定删除？")) {
-                $.get(apiAddress + "/config/remove?id=" + id, function(result) {
-                    alert(result.msg || "操作成功");
-                    loadConfigList();
-                }).fail(function() {
-                    alert("操作失败");
-                });
-            }
-        }
-
-        $("#add_btn").click(function() {
-            if (deviceId === "NO_ID") {
-                alert("未设置设备ID，无法使用此功能");
-                return;
-            }
-
-            let serialize = $("#handle-form").serializeArray();
-            
-            for (let a of serialize) {
-                if (a.name == 'serverHost' && a.value == '-1') {
-                    a.value = $("#showServerInfoInPutVal").val();
-                    if (!a.value) {
-                        alert("请输入自定义服务地址");
-                        return;
-                    }
-                }
-                if (a.name == 'userHost') {
-                    if (!a.value || a.value.split(":").length < 2) {
-                        alert("格式错误，请使用 ip:端口");
-                        return;
-                    }
-                }
-            }
-
-            serialize.push({name: "userId", value: userInfo.id});
-            serialize.push({name: "username", value: userInfo.username});
-            serialize.push({name: "password", value: userInfo.password});
-            serialize.push({name: "deviceId", value: deviceId});
-
-            $.post(apiAddress + "/config/save", serialize, function(result) {
-                if (result.code === 200) {
-                    alert(result.msg || "添加成功");
-                    closeAddDialog();
-                    loadConfigList();
-                } else {
-                    alert(result.msg || "操作失败");
-                }
-            }).fail(function() {
-                alert("网络错误");
-            });
-        });
-    </script>
+  <script src="common/js/pages/autoproxy.js"></script>
 </body>
 </html>

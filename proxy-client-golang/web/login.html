@@ -1,402 +1,117 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN" data-theme="light">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1">
-    <meta name="renderer" content="webkit">
-    <meta http-equiv="Cache-Control" content="no-siteapp">
-    <meta name="format-detection" content="telephone=no">
-    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
-    <link rel="stylesheet" href="common/css/proxy-beauty.css">
-    <script src="/api.js"></script>
-    <script src="common/js/jquery.min.js"></script>
-    <title>登录 - Proxy内网穿透</title>
-    <style>
-        .login-page {
-            min-height: 100vh;
-            background: linear-gradient(135deg, var(--primary-600), var(--primary-800));
-            display: flex;
-            flex-direction: column;
-            padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
-        }
-        
-        .login-header {
-            padding: 1.5rem 1rem;
-            text-align: center;
-        }
-        
-        .login-header h1 {
-            color: white;
-            font-size: 1.8rem;
-            font-weight: 600;
-        }
-        
-        .login-header p {
-            color: rgba(255, 255, 255, 0.8);
-            margin-top: 0.25rem;
-            font-size: 0.875rem;
-        }
-        
-        .login-container {
-            flex: 1;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 1rem;
-        }
-        
-        .login-card {
-            background: var(--bg-card);
-            border-radius: var(--radius-lg);
-            box-shadow: var(--shadow-lg);
-            width: 100%;
-            max-width: 400px;
-            overflow: hidden;
-        }
-        
-        .login-tabs {
-            display: flex;
-            border-bottom: 1px solid var(--border);
-        }
-        
-        .login-tab {
-            flex: 1;
-            padding: 1rem;
-            text-align: center;
-            cursor: pointer;
-            transition: var(--transition);
-            font-weight: 500;
-            color: var(--text-secondary);
-            font-size: 1rem;
-            min-height: 52px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        
-        .login-tab.active {
-            color: var(--primary-500);
-            border-bottom: 2px solid var(--primary-500);
-        }
-        
-        .login-form {
-            padding: 1.5rem;
-        }
-        
-        .form-footer {
-            margin-top: 1.5rem;
-            text-align: center;
-            color: var(--text-secondary);
-            font-size: 0.75rem;
-        }
-        
-        .feature-section {
-            background: var(--bg-card);
-            padding: 2rem 1rem;
-            border-top: 1px solid var(--border);
-        }
-        
-        .feature-section h2 {
-            text-align: center;
-            margin-bottom: 1.5rem;
-            color: var(--text-primary);
-            font-size: 1.25rem;
-        }
-        
-        .feature-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 1rem;
-            max-width: 500px;
-            margin: 1rem auto 0;
-        }
-        
-        @media (min-width: 768px) {
-            .feature-grid {
-                grid-template-columns: repeat(4, 1fr);
-            }
-        }
-        
-        .feature-item {
-            text-align: center;
-        }
-        
-        .feature-item i {
-            font-size: 2rem;
-            color: var(--primary-500);
-            margin-bottom: 0.5rem;
-        }
-        
-        .feature-item h3 {
-            font-weight: 600;
-            margin-bottom: 0.25rem;
-            color: var(--text-primary);
-            font-size: 0.875rem;
-        }
-        
-        .feature-item p {
-            color: var(--text-secondary);
-            font-size: 0.75rem;
-        }
-        
-        .donation-section {
-            background: var(--bg-body);
-            padding: 1.5rem 1rem;
-            text-align: center;
-        }
-        
-        .donation-section h3 {
-            margin-bottom: 1rem;
-            color: var(--text-primary);
-            font-size: 1rem;
-        }
-        
-        .donation-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-            gap: 0.75rem;
-            max-width: 400px;
-            margin: 1rem auto 0;
-        }
-        
-        .donation-item {
-            background: var(--bg-card);
-            padding: 0.75rem;
-            border-radius: var(--radius-md);
-            border: 1px solid var(--border);
-            font-size: 0.875rem;
-        }
-        
-        .donation-item div:first-child {
-            color: var(--text-primary);
-            margin-bottom: 0.25rem;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-        
-        .donation-amount {
-            font-weight: 600;
-            color: var(--primary-500);
-        }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <meta name="referrer" content="no-referrer">
+  <meta name="format-detection" content="telephone=no">
+  <title>登录 · Proxy 内网穿透</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%232f6bff' d='M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="common/css/app.css">
+  <script src="/api.js"></script>
+  <script src="common/js/app.js"></script>
 </head>
 <body>
-    <div class="login-page">
-        <div class="login-header">
-            <h1>Proxy</h1>
-            <p>简单快速的内网穿透</p>
+  <div class="auth">
+    <aside class="auth__aside">
+      <div>
+        <div class="brand" style="font-size: 1.35rem;">
+          <span class="brand__mark" id="asideMark"></span>
+          <span>Proxy 内网穿透</span>
         </div>
-        
-        <div class="login-container">
-            <div class="login-card">
-                <div class="login-tabs">
-                    <div class="login-tab active" onclick="showLogin()">登录</div>
-                    <div class="login-tab" onclick="showRegister()">注册</div>
-                </div>
-                
-                <!-- 登录表单 -->
-                <div class="login-form" id="loginForm">
-                    <div class="form-group">
-                        <label class="form-label">邮箱</label>
-                        <input class="form-input" id="login_username" type="text" placeholder="请输入邮箱">
-                    </div>
-                    
-                    <div class="form-group">
-                        <label class="form-label">密码</label>
-                        <input class="form-input" id="login_password" type="password" placeholder="请输入密码">
-                    </div>
-                    
-                    <button class="btn btn-primary w-full" id="login_btn">登录</button>
-                </div>
-                
-                <!-- 注册表单 -->
-                <div class="login-form" id="registerForm" style="display: none;">
-                    <div class="form-group">
-                        <label class="form-label">邮箱</label>
-                        <input class="form-input" id="reg_username" type="text" placeholder="请输入邮箱">
-                    </div>
-                    
-                    <div class="form-group">
-                        <label class="form-label">密码</label>
-                        <input class="form-input" id="reg_password" type="password" placeholder="请输入密码">
-                    </div>
-                    
-                    <div class="form-group">
-                        <label class="form-label">验证码</label>
-                        <div style="display: flex; gap: 0.5rem;">
-                            <input class="form-input" id="reg_code" type="text" placeholder="验证码" style="flex: 1;">
-                            <button class="btn btn-outline" id="send_email" type="button" style="white-space: nowrap; min-width: 100px;">发送</button>
-                        </div>
-                    </div>
-                    
-                    <button class="btn btn-primary w-full" id="reg_btn">注册/更新密码</button>
-                </div>
-                
-                <div class="form-footer">
-                    永久免费 · 无需充值
-                </div>
+        <p class="auth__slogan mt-4">把内网服务<br>安全地带到公网</p>
+        <p class="text-sm mt-2" style="opacity: .82;">
+          TCP / UDP / HTTP / HTTPS 全协议支持，二级域名与固定端口任意组合，无需公网 IP。
+        </p>
+      </div>
+      <div class="auth__features" id="featureList"></div>
+    </aside>
+
+    <div class="auth__main">
+      <div class="auth__card">
+        <div class="row row--between mb-4">
+          <div class="brand show-sm">
+            <span class="brand__mark" id="mainMark"></span>
+            <span>Proxy</span>
+          </div>
+          <div class="header__spacer"></div>
+          <div id="themeSlot"></div>
+        </div>
+
+        <div class="card">
+          <div class="card__body">
+            <div class="auth__tabs" role="tablist" aria-label="账号操作">
+              <button type="button" class="auth__tab is-active" id="tabLogin" role="tab" aria-selected="true">登录</button>
+              <button type="button" class="auth__tab" id="tabRegister" role="tab" aria-selected="false">注册 / 重置密码</button>
             </div>
+
+            <form id="loginForm" novalidate>
+              <div class="field">
+                <label class="field__label" for="login_username">邮箱</label>
+                <input class="input" id="login_username" name="username" type="email"
+                       autocomplete="username" placeholder="you@example.com" required>
+              </div>
+              <div class="field">
+                <label class="field__label" for="login_password">密码</label>
+                <input class="input" id="login_password" name="password" type="password"
+                       autocomplete="current-password" placeholder="请输入密码" required>
+              </div>
+              <button class="btn btn--primary btn--block" id="login_btn" type="submit">登录</button>
+              <p class="faint text-xs mt-2" id="loginHint">
+                账号密码仅用于云端鉴权；密码只保留在当前标签页，关闭浏览器后需要重新输入。
+              </p>
+            </form>
+
+            <form id="registerForm" class="hidden" novalidate>
+              <div class="field">
+                <label class="field__label" for="reg_username">邮箱</label>
+                <input class="input" id="reg_username" name="username" type="email"
+                       autocomplete="username" placeholder="you@example.com" required>
+              </div>
+              <div class="field">
+                <label class="field__label" for="reg_password">密码</label>
+                <input class="input" id="reg_password" name="password" type="password"
+                       autocomplete="new-password" placeholder="至少 6 位" required>
+              </div>
+              <div class="field">
+                <label class="field__label" for="reg_code">
+                  邮箱验证码
+                  <span class="field__hint">有效期 5 分钟</span>
+                </label>
+                <div class="field-row">
+                  <input class="input" id="reg_code" name="code" inputmode="numeric"
+                         autocomplete="one-time-code" placeholder="6 位数字" required>
+                  <button type="button" class="btn btn--subtle" id="send_email">发送验证码</button>
+                </div>
+              </div>
+              <button class="btn btn--primary btn--block" id="reg_btn" type="submit">注册 / 重置密码</button>
+            </form>
+          </div>
         </div>
-        
-        <div class="feature-section">
-            <h2>为什么选择我们？</h2>
-            <div class="feature-grid">
-                <div class="feature-item">
-                    <i class="material-icons">devices</i>
-                    <h3>多端支持</h3>
-                    <p>全平台支持</p>
-                </div>
-                <div class="feature-item">
-                    <i class="material-icons">language</i>
-                    <h3>二级域名</h3>
-                    <p>免费赠送</p>
-                </div>
-                <div class="feature-item">
-                    <i class="material-icons">dns</i>
-                    <h3>固定端口</h3>
-                    <p>灵活配置</p>
-                </div>
-                <div class="feature-item">
-                    <i class="material-icons">https</i>
-                    <h3>HTTPS</h3>
-                    <p>安全加密</p>
-                </div>
-            </div>
+
+        <div class="card mt-4">
+          <div class="card__head">
+            <h3 class="card__title" id="donateTitle">最新支持者</h3>
+          </div>
+          <div class="card__body">
+            <div class="donor-list" id="pay"></div>
+            <details class="mt-4">
+              <summary class="text-sm muted" style="cursor: pointer;">查看打赏二维码</summary>
+              <div class="qr mt-4">
+                <img src="img/pay.jpg" alt="打赏二维码" width="240" height="240" loading="lazy">
+              </div>
+            </details>
+          </div>
         </div>
-        
-        <div class="donation-section">
-            <h3>最新捐赠</h3>
-            <div style="text-align: center">
-                <img height="300" src="img/pay.jpg"/>
-            </div>
-            <div class="donation-grid" id="pay"></div>
-        </div>
+
+        <p class="faint text-xs mt-4" style="text-align: center;">
+          永久免费 · 无需充值 · 控制台仅允许本机或持有令牌的设备访问
+        </p>
+      </div>
     </div>
+  </div>
 
-    <script>
-        $(function() {
-            if (localStorage.getItem("userInfo")) {
-                location.href = "center.html";
-                return;
-            }
-            loadDonations();
-            
-            $("#login_btn").click(doLogin);
-            $("#reg_btn").click(doRegister);
-            $("#send_email").click(sendEmail);
-            
-            $("#login_password, #login_username").keypress(function(e) {
-                if(e.which == 13) doLogin();
-            });
-        });
-
-        function showLogin() {
-            $(".login-tab").removeClass("active");
-            $(".login-tab:eq(0)").addClass("active");
-            $("#loginForm").show();
-            $("#registerForm").hide();
-        }
-        
-        function showRegister() {
-            $(".login-tab").removeClass("active");
-            $(".login-tab:eq(1)").addClass("active");
-            $("#loginForm").hide();
-            $("#registerForm").show();
-        }
-
-        function doLogin() {
-            var username = $("#login_username").val().trim();
-            var password = $("#login_password").val().trim();
-            
-            if (!username || !password) {
-                alert("请输入邮箱和密码");
-                return;
-            }
-            
-            $.post(apiAddress + "/user/login", {username: username, password: password}, function(result) {
-                if (result.code === 200) {
-                    localStorage.setItem("userInfo", JSON.stringify(result.data));
-                    if (result.data.level == 0) {
-                        localStorage.setItem("showPay", "0");
-                    }
-                    location.href = "center.html";
-                } else {
-                    alert(result.msg || "登录失败");
-                }
-            }).fail(function() {
-                alert("网络错误");
-            });
-        }
-
-        function sendEmail() {
-            var username = $("#reg_username").val().trim();
-            if (!username) {
-                alert("请输入邮箱");
-                return;
-            }
-            
-            var $btn = $("#send_email");
-            $btn.prop("disabled", true).text("发送中");
-            
-            $.get(apiAddress + "/user/email", {username: username}, function(result) {
-                if (result.code === 200) {
-                    alert("验证码已发送，请查收邮件");
-                } else {
-                    alert(result.msg || "发送失败");
-                }
-            }).fail(function() {
-                alert("网络错误");
-            }).always(function() {
-                setTimeout(function() {
-                    $btn.prop("disabled", false).text("发送");
-                }, 60000);
-            });
-        }
-
-        function doRegister() {
-            var username = $("#reg_username").val().trim();
-            var password = $("#reg_password").val().trim();
-            var code = $("#reg_code").val().trim();
-            
-            if (!username || !password || !code) {
-                alert("请填写完整信息");
-                return;
-            }
-            
-            $.post(apiAddress + "/user/reg", {username: username, password: password, code: code}, function(result) {
-                if (result.code === 200) {
-                    alert("注册成功，请登录");
-                    showLogin();
-                    $("#login_username").val(username);
-                } else {
-                    alert(result.msg || "注册失败");
-                }
-            }).fail(function() {
-                alert("网络错误");
-            });
-        }
-
-        function loadDonations() {
-            $.get(apiAddress + "/server/pay", function(result) {
-                if (result.code !== 200 || !result.data || result.data.length === 0) {
-                    $("#pay").html('<div class="donation-item">暂无捐赠</div>');
-                    return;
-                }
-                
-                var html = "";
-                for (let a of result.data.slice(0, 6)) {
-                    html += '<div class="donation-item">' +
-                        '<div>' + (a.username || '匿名') + '</div>' +
-                        '<div class="donation-amount">￥' + (a.price || '0') + '</div>' +
-                        '</div>';
-                }
-                $("#pay").html(html);
-            }).fail(function() {
-                $("#pay").html('<div class="donation-item">加载失败</div>');
-            });
-        }
-    </script>
+  <script src="common/js/pages/login.js"></script>
 </body>
 </html>
