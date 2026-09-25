@@ -21,6 +21,7 @@ import miao.byusi.hp.server.service.*;
 import miao.byusi.hp.server.utils.DateUtil;
 import miao.byusi.hp.server.utils.SafeInputUtil;
 import miao.byusi.hp.server.utils.UserAuthUtil;
+import miao.byusi.hp.server.utils.UserSessionStore;
 import miao.byusi.hp.server.utils.UserCheckUtil;
 import org.beetl.sql.core.page.PageResult;
 import org.slf4j.Logger;
@@ -184,7 +185,9 @@ public class OpenApiController {
                     // 审计日志：只记录账号，绝不记录密码/验证码
                     log.info("用户：{} 通过邮箱验证码完成了密码重置", username);
                 }
-                return JsonResult.ok("注册成功");
+                // 【安全修复】注册成功后同样下发不透明会话 ID（新增字段，向后兼容）
+                String session = UserSessionStore.create(username);
+                return JsonResult.ok("注册成功").put("session", session);
             } else {
                 return JsonResult.error("用户名已经存在请换一个");
             }
@@ -224,7 +227,10 @@ public class OpenApiController {
                 login.setTips(ConstConfig.TIPS);
                 // 【安全修复】不再输出登录结果，避免把返回给客户端的 password 字段写进日志
                 log.info("登录成功：账号={}，请求ID={}", username.trim(), request.getRequestId());
-                return JsonResult.ok("登录成功.").put("data", login);
+                // 【安全修复】为站点页面下发不透明会话 ID，取代前端保存「账号|密码」的明文 cookie。
+                // 该字段是新增的，不影响既有 Go/Android 客户端解析。
+                String session = UserSessionStore.create(username.trim());
+                return JsonResult.ok("登录成功.").put("data", login).put("session", session);
             }
         }
         return JsonResult.error("登录失败.请尝试重新注册");

@@ -1,75 +1,4 @@
 <#include "./header.ftl">
-<style>
-    .cyber-logo {
-        max-width: 600px;
-        margin: 0 auto 2rem;
-        filter: drop-shadow(0 0 12px rgba(56, 189, 248, 0.3));
-        animation: float 6s ease-in-out infinite;
-    }
-
-    @keyframes float {
-        0%, 100% { transform: translateY(0); }
-        50% { transform: translateY(-10px); }
-    }
-
-    /* 调整banner布局 */
-    .banner {
-        position: relative;
-        padding-top: 4rem;
-        text-align: center;
-    }
-
-    .banner h1 {
-        /* 隐藏文字标题（SEO保留） */
-        position: absolute;
-        width: 1px;
-        height: 1px;
-        padding: 0;
-        margin: -1px;
-        overflow: hidden;
-        clip: rect(0, 0, 0, 0);
-        border: 0;
-    }
-
-    .meta {
-        font-size: 1.1rem;
-        max-width: 800px;
-        margin: 0 auto 2rem;
-        line-height: 1.6;
-        /* color: rgba(255, 255, 255, 0.9); */
-    }
-
-    /* .feature.case .meta {
-        color: #333;
-    } */
-
-    .actions {
-        display: flex;
-        gap: 1.5rem;
-        justify-content: center;
-        flex-wrap: wrap;
-    }
-
-    .mdui-col span {
-        display: inline-block;
-        padding: 0.25em 0.4em;
-        font-size: 75%;
-        font-weight: 700;
-        line-height: 1;
-        text-align: center;
-        white-space: nowrap;
-        vertical-align: baseline;
-        border-radius: 0.25rem;
-        transition: color .15s ease-in-out, background-color .15s ease-in-out, border-color .15s ease-in-out, box-shadow .15s ease-in-out;
-    }
-
-    .pay {
-        margin-top: 10px;
-        padding: 10px;
-        box-shadow: 20px 0px 10px 0px rgba(0, 0, 0, 0.5);
-        text-align: center;
-    }
-</style>
 
 <#--监控页面-->
 <div id="page-index" class="mdui-container">
@@ -217,17 +146,17 @@
         </div>
     </div>
 
-    <div class="feature">
-        <script src='https://gitee.com/byusi/proxy/widget_preview' async defer></script>
-        <div id="osc-gitee-widget-tag"></div>
-        <style>
-            .osc_pro_color {color: #4183c4 !important;}
-            .osc_panel_color {background-color: #ffffff !important;}
-            .osc_background_color {background-color: #ffffff !important;}
-            .osc_border_color {border-color: #e3e9ed !important;}
-            .osc_desc_color {color: #666666 !important;}
-            .osc_link_color * {color: #9b9b9b !important;}
-        </style>
+        <div class="feature">
+        <svg class="icon" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M12 3l9 5v8l-9 5-9-5V8l9-5z"/><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4"/></svg>
+        <h2>开源与客户端</h2>
+        <div class="meta">
+            项目完全开源，客户端覆盖 Windows / Linux / Android / NAS / Docker 等平台。
+            为避免第三方脚本影响加载速度与隐私，本站不再内嵌外部组件，可直接点击下方链接查看仓库与发行包。
+        </div>
+        <div class="actions">
+            <a class="mdui-btn mdui-btn-raised mdui-color-theme mdui-ripple" href="https://gitee.com/byusi/proxy" target="_blank" rel="noopener noreferrer">Gitee 仓库</a>
+            <a class="mdui-btn mdui-ripple" href="https://github.com/ByUsiTeam/Proxy" target="_blank" rel="noopener noreferrer">GitHub 仓库</a>
+        </div>
     </div>
 
     <div class="feature case">
@@ -327,9 +256,9 @@ bash -c "$(curl -sSL https://gitee.com/byusi/proxy/raw/master/shell/install2.sh)
                     <#if payer??>
                         <#list payer as pay>
                             <div class="mdui-col pay">
-                                <div>${pay.username}</div>
+                                <div>${pay.username?html}</div>
                                 <div>
-                                    <span fill="#7dd3fc">￥${pay.price}</span>
+                                    <span fill="#7dd3fc">￥${pay.price?html}</span>
                                 </div>
                             </div>
                         </#list>
@@ -339,22 +268,6 @@ bash -c "$(curl -sSL https://gitee.com/byusi/proxy/raw/master/shell/install2.sh)
         </div>
     </div>
 
-    <!-- 移动端优化 -->
-    <style>
-        @media (max-width: 768px) {
-            .cyber-logo {
-                max-width: 300px;
-            }
-            .cyber-logo use,
-            .cyber-logo animate,
-            .cyber-logo animateTransform {
-                display: none;
-            }
-            .cyber-logo text {
-                font-size: 32px;
-            }
-        }
-    </style>
-</div>
+    </div>
 </body>
 </html>

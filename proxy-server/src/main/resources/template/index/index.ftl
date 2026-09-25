@@ -34,8 +34,8 @@
             <#list list as server>
                 <div class="mdui-card">
                     <div class="mdui-card-primary">
-                        <div class="mdui-card-primary-title">${server.name}</div>
-                        <div class="mdui-card-primary-subtitle">${server.ip}:${server.port}</div>
+                        <div class="mdui-card-primary-title">${server.name?html}</div>
+                        <div class="mdui-card-primary-subtitle">${server.ip?html}:${server.port?html}</div>
                     </div>
                     <div class="mdui-card-actions">
                         <div class="mdui-card-primary-subtitle">连接数：${server.num}</div>

@@ -1,116 +1,173 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0,maximum-scale=1.0, user-scalable=no"/>
-    <meta http-equiv="X-UA-Compatible" content="IE=edge,chrome=1"/>
-    <meta name="renderer" content="webkit">
-    <meta http-equiv="Cache-Control" content="no-siteapp"/>
-    <link rel="stylesheet" href="/index/css/index.css"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+    <meta name="color-scheme" content="light dark">
+    <meta name="referrer" content="no-referrer">
+    <meta name="description" content="Proxy 内网穿透：数据转发实现，无需公网 IP，支持 TCP/UDP 与 http/https/ws/wss，免费赠送二级域名。">
     <link rel="stylesheet" href="/common/css/mdui.min.css"/>
     <link rel="stylesheet" href="/common/css/paging.css"/>
+    <link rel="stylesheet" href="/index/css/index.css"/>
     <script src="/common/js/jquery.min.js"></script>
     <script src="/common/js/paging.js"></script>
     <script src="/common/js/mdui.min.js"></script>
     <link rel="shortcut icon" href="favicon.ico" type="image/x-icon">
     <title>Proxy内网穿透</title>
+    <script>
+        /* 主题引导：在样式生效前写入 data-theme，避免闪烁（唯一的内联脚本，不含任何服务端数据） */
+        (function () {
+            var saved = null;
+            try { saved = localStorage.getItem('px_site_theme'); } catch (e) { saved = null; }
+            var mql = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+            var theme = (saved === 'light' || saved === 'dark') ? saved : (mql && mql.matches ? 'dark' : 'light');
+            document.documentElement.setAttribute('data-theme', theme);
+            document.documentElement.style.colorScheme = theme;
+        })();
+    </script>
 </head>
-<body class=" mdui-theme-primary-indigo mdui-theme-accent-pink mdui-theme-layout-auto">
+<body class="mdui-theme-primary-indigo mdui-theme-accent-pink mdui-theme-layout-auto">
 <header class="mdui-appbar mdui-appbar-fixed">
-<#--    <div class="mdui-toolbar mdui-color-theme">-->
-<#--        <div class="mdui-toolbar-spacer"></div>-->
-<#--        <div mdui-dialog="{target: '#login_dialog'}" class=" mdui-btn mdui-btn-dense">登录</div>-->
-<#--        <div mdui-dialog="{target: '#register_dialog'}" class="register mdui-btn mdui-btn-dense">注册</div>-->
-<#--    </div>-->
+    <div class="mdui-toolbar">
+        <a href="/index/index" aria-label="Proxy 内网穿透首页">
+            <svg viewBox="0 0 24 24" style="width:1.35rem;height:1.35rem;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                <path d="m9 12 2 2 4-4"/>
+            </svg>
+            <span>Proxy 穿透</span>
+        </a>
+        <div class="mdui-toolbar-spacer"></div>
+        <button type="button" class="theme-toggle" id="themeToggle" aria-label="切换深色 / 浅色主题" title="切换主题">
+            <svg viewBox="0 0 24 24" id="themeIcon"><path d="M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10"/><path d="M12 1v3M12 20v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M1 12h3M20 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></svg>
+        </button>
+        <button type="button" class="mdui-btn mdui-btn-dense mdui-ripple" mdui-dialog="{target: '#login_dialog'}">登录</button>
+        <button type="button" class="mdui-btn mdui-btn-dense mdui-btn-raised mdui-color-theme mdui-ripple" mdui-dialog="{target: '#register_dialog'}">注册</button>
+    </div>
 </header>
-<!--菜單-->
-<div class="mdui-dialog mc-account mc-login" id="login_dialog" style="height: auto">
+
+<!-- 登录 -->
+<div class="mdui-dialog mc-account mc-login" id="login_dialog">
     <div>
-        <button id="closeLogin" mdui-dialog-close="{target: '#login_dialog'}" class="mdui-btn mdui-btn-icon close"><i
-                    class="mdui-icon material-icons">close</i></button>
+        <button type="button" id="closeLogin" mdui-dialog-close="{target: '#login_dialog'}" class="mdui-btn mdui-btn-icon close" aria-label="关闭">
+            <i class="mdui-icon material-icons">close</i>
+        </button>
         <div class="mdui-dialog-title">登录</div>
     </div>
-    <form>
-        <div class="mdui-textfield mdui-textfield-floating-label mdui-textfield-has-bottom mdui-textfield-invalid-html5">
-            <label class="mdui-textfield-label">账号</label><input id="username" class="mdui-textfield-input" name="name"
-                                                                 type="text" required="">
-            <div class="mdui-textfield-error">账号不能为空</div>
+    <form id="login_form" autocomplete="on">
+        <div class="mdui-textfield mdui-textfield-floating-label">
+            <label class="mdui-textfield-label" for="username">账号（邮箱）</label>
+            <input id="username" class="mdui-textfield-input" name="username" type="text" autocomplete="username" required>
         </div>
-        <div class="mdui-textfield mdui-textfield-floating-label mdui-textfield-has-bottom"><label
-                    class="mdui-textfield-label">密码</label><input id="password" class="mdui-textfield-input"
-                                                                  name="password"
-                                                                  type="password" required="">
-            <div class="mdui-textfield-error">密码不能为空</div>
+        <div class="mdui-textfield mdui-textfield-floating-label">
+            <label class="mdui-textfield-label" for="password">密码</label>
+            <input id="password" class="mdui-textfield-input" name="password" type="password" autocomplete="current-password" required>
         </div>
         <div class="actions mdui-clearfix">
-            <button type="button" id="login_btn" class="mdui-btn mdui-btn-raised mdui-color-theme action-btn">登录
-            </button>
+            <button type="submit" id="login_btn" class="mdui-btn mdui-btn-raised mdui-color-theme action-btn">登录</button>
         </div>
     </form>
 </div>
 
-<div class="mc-account mc-login mdui-dialog" id="register_dialog" style="height: auto">
+<!-- 注册 -->
+<div class="mc-account mc-login mdui-dialog" id="register_dialog">
     <div>
-        <button id="closeReg" mdui-dialog-close="{target: '#register_dialog'}" class="mdui-btn mdui-btn-icon close"><i
-                    class="mdui-icon material-icons">close</i></button>
+        <button type="button" id="closeReg" mdui-dialog-close="{target: '#register_dialog'}" class="mdui-btn mdui-btn-icon close" aria-label="关闭">
+            <i class="mdui-icon material-icons">close</i>
+        </button>
         <div class="mdui-dialog-title">创建新账号</div>
     </div>
-    <form class="">
-        <div class="mdui-textfield mdui-textfield-floating-label mdui-textfield-has-bottom"><label
-                    class="mdui-textfield-label">用户名(也是你的二级域名名字)</label><input id="reg_username" class="mdui-textfield-input"
-                                                                               name="username"
-                                                                               type="text" required="">
-            <div class="mdui-textfield-error">用户名不能为空</div>
+    <form id="register_form" autocomplete="on">
+        <div class="mdui-textfield mdui-textfield-floating-label">
+            <label class="mdui-textfield-label" for="reg_username">用户名（也是你的二级域名名字）</label>
+            <input id="reg_username" class="mdui-textfield-input" name="username" type="text" autocomplete="username" required>
         </div>
-        <div class="mdui-textfield mdui-textfield-floating-label mdui-textfield-has-bottom"><label
-                    class="mdui-textfield-label">密码</label><input id="reg_password" class="mdui-textfield-input" name="password"
-                                                                  type="password" required="">
-            <div class="mdui-textfield-error">密码不能为空</div>
+        <div class="mdui-textfield mdui-textfield-floating-label">
+            <label class="mdui-textfield-label" for="reg_password">密码</label>
+            <input id="reg_password" class="mdui-textfield-input" name="password" type="password" autocomplete="new-password" required>
         </div>
         <div class="actions mdui-clearfix">
-            <button id="reg_btn" type="button" class="mdui-btn mdui-btn-raised mdui-color-theme action-btn">注册并登录</button>
+            <button type="submit" id="reg_btn" class="mdui-btn mdui-btn-raised mdui-color-theme action-btn">注册并登录</button>
+        </div>
+        <div class="mdui-textfield" style="padding-top: 0;">
+            <span class="mdui-textfield-helper">注册即表示同意站点使用申明；账号即二级域名。</span>
         </div>
     </form>
 </div>
 
-
 <script>
-    $(function () {
-        $("#login_btn").click(function () {
-            let val = $("#username").val();
-            let val1 = $("#password").val();
-            if (val && val1) {
-                $.post("/user/login", {username: val, password: val1}, function (result) {
-                    if (result.code === 200) {
-                        document.cookie = "authUser="+val+"|"+val1
-                        location.href = "/index/index";
-                    } else {
-                        $("#closeLogin").click()
-                        mdui.alert(result.msg);
-                    }
-                });
+    (function () {
+        'use strict';
+
+        /* ---------- 主题切换 ---------- */
+        var SUN = '<path d="M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10"/><path d="M12 1v3M12 20v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M1 12h3M20 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>';
+        var MOON = '<path d="M21 13A9 9 0 1 1 11 3a7 7 0 0 0 10 10z"/>';
+
+        function currentTheme() {
+            return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+        }
+
+        function applyTheme(theme) {
+            document.documentElement.setAttribute('data-theme', theme);
+            document.documentElement.style.colorScheme = theme;
+            var icon = document.getElementById('themeIcon');
+            if (icon) { icon.innerHTML = theme === 'dark' ? MOON : SUN; }
+        }
+
+        applyTheme(currentTheme());
+        var toggle = document.getElementById('themeToggle');
+        if (toggle) {
+            toggle.addEventListener('click', function () {
+                var next = currentTheme() === 'dark' ? 'light' : 'dark';
+                try { localStorage.setItem('px_site_theme', next); } catch (e) { /* 忽略 */ }
+                applyTheme(next);
+            });
+        }
+
+        /* ---------- 会话 Cookie ----------
+         * 【安全修复】旧实现把「账号|明文密码」写进 cookie（authUser=...），
+         * 明文密码可被任意脚本读取并随请求发送。现在只保存服务端下发的不透明会话 ID。 */
+        function saveSession(result) {
+            if (result && result.session) {
+                document.cookie = 'user_session=' + encodeURIComponent(result.session) + '; path=/; max-age=43200; samesite=lax';
             }
-        })
+            // 清理历史版本遗留的明文凭据 cookie
+            document.cookie = 'authUser=; path=/; max-age=0';
+        }
 
+        function submit($btn, url, data, $close, $errorHost) {
+            $btn.prop('disabled', true);
+            $.post(url, data, function (result) {
+                if (result.code === 200) {
+                    saveSession(result);
+                    location.href = '/index/index';
+                } else {
+                    if ($close) { $close.click(); }
+                    mdui.alert(result.msg || '操作失败');
+                }
+            }).fail(function () {
+                if ($errorHost) { $errorHost.text('网络错误，请稍后重试'); }
+                mdui.alert('网络错误，请稍后重试');
+            }).always(function () {
+                $btn.prop('disabled', false);
+            });
+        }
 
-        $("#reg_btn").click(function () {
-            let val = $("#reg_username").val();
-            let val1 = $("#reg_password").val();
-            if (val && val1) {
-                $.post("/user/reg", {username: val, password: val1}, function (result) {
-                    if (result.code === 200) {
-                        document.cookie = "authUser="+val+"|"+val1
-                        location.href = "/index/index";
-                    } else {
-                        $("#closeReg").click()
-                        mdui.alert(result.msg);
-                    }
-                });
-            }
-        })
+        $(function () {
+            $('#login_form').on('submit', function (ev) {
+                ev.preventDefault();
+                var username = $('#username').val();
+                var password = $('#password').val();
+                if (!username || !password) { return; }
+                submit($('#login_btn'), '/user/login', { username: username, password: password }, $('#closeLogin'));
+            });
 
-    })
-
-
+            $('#register_form').on('submit', function (ev) {
+                ev.preventDefault();
+                var username = $('#reg_username').val();
+                var password = $('#reg_password').val();
+                if (!username || !password) { return; }
+                submit($('#reg_btn'), '/user/reg', { username: username, password: password }, $('#closeReg'));
+            });
+        });
+    })();
 </script>

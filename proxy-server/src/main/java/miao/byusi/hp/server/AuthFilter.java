@@ -12,6 +12,7 @@ import miao.byusi.hp.server.domian.entity.UserEntity;
 import miao.byusi.hp.server.service.UserService;
 import miao.byusi.hp.server.utils.AdminSessionStore;
 import miao.byusi.hp.server.utils.SafeInputUtil;
+import miao.byusi.hp.server.utils.UserSessionStore;
 
 import java.net.URI;
 import java.util.Arrays;
@@ -76,28 +77,20 @@ public class AuthFilter implements FilterAdapter {
                 return;
             }
         } else if (uri.contains("index")) {
-            String auth = request.getHeader("cookie");
-            try {
-                if (auth != null) {
-                    String[] split = auth.split(";");
-                    for (String s : split) {
-                        boolean contains = s.contains("authUser=");
-                        if (contains) {
-                            String s1 = s.replaceAll("authUser=", "");
-                            String[] split1 = s1.split("\\|");
-                            String user = split1[0];
-                            String pwd = split1[1];
-                            UserEntity user1 = userService.getUser(user);
-                            if (user1 != null && user1.getPassword() != null
-                                    && SafeInputUtil.safeEquals(user1.getPassword(), pwd)) {
-                                webkit.httpRequest.getHeaders().put("username", user);
-                                return;
-                            }
-                        }
-                    }
-
+            // 【安全修复】站点页面（/index/*）原本用 cookie「authUser=账号|明文密码」鉴权：
+            // 该 cookie 非 HttpOnly、无有效期、随每个请求发送，一旦有 XSS 或被抓包即泄露密码。
+            // 现改为校验服务端下发的不透明会话 ID（user_session），并仍然复核账号状态。
+            String cookieHeader = request.getHeader("cookie");
+            String sessionId = UserSessionStore.cookieValue(cookieHeader, "user_session");
+            String sessionUser = UserSessionStore.username(sessionId);
+            if (sessionUser != null) {
+                UserEntity entity = userService.getUser(sessionUser);
+                if (entity != null && entity.getType() != -1) {
+                    webkit.httpRequest.getHeaders().put("username", entity.getUsername());
+                    return;
                 }
-            } catch (Exception ignored) {
+                // 账号已被封禁或删除：立即作废会话
+                UserSessionStore.invalidate(sessionId);
             }
             webkit.httpResponse.sendTemplate("/index/default.ftl");
         }

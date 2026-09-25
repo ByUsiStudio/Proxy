@@ -20,14 +20,14 @@
             <#if list??>
                 <#list list as statistics>
                     <tr>
-                        <td>${statistics.id}</td>
-                        <td>${statistics.username}</td>
+                        <td>${statistics.id?html}</td>
+                        <td>${statistics.username?html}</td>
                         <td>${statistics.port?c}</td>
-                        <td>${statistics.receive} 字节</td>
-                        <td>${statistics.send} 字节</td>
-                        <td>${statistics.connectNum}</td>
-                        <td>${statistics.packNum}</td>
-                        <td>${statistics.createTime}</td>
+                        <td>${statistics.receive?html} 字节</td>
+                        <td>${statistics.send?html} 字节</td>
+                        <td>${statistics.connectNum?html}</td>
+                        <td>${statistics.packNum?html}</td>
+                        <td>${statistics.createTime?html}</td>
                     </tr>
                 </#list>
             </#if>
