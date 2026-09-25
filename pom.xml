@@ -21,6 +21,13 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.source>25</maven.compiler.source>
         <maven.compiler.target>25</maven.compiler.target>
+        <!--
+          构建输出目录后缀：默认空 → 各模块仍是 ./target（行为不变）。
+          允许多个构建并行而不互相踩踏，例如：
+            mvn -o -DskipTests compile -Dbuild.suffix=-b
+          会把输出放到 ./target-b。多人/多任务同时改同一个工作树时很有用。
+        -->
+        <build.suffix></build.suffix>
     </properties>
 
     <modules>
@@ -41,6 +48,11 @@
             <version>1.4</version>
         </dependency>
     </dependencies>
+
+    <build>
+        <!-- 见 properties 中 build.suffix 的说明：默认仍是 ./target -->
+        <directory>${project.basedir}/target${build.suffix}</directory>
+    </build>
 
 
 </project>

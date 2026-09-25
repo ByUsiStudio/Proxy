@@ -10,6 +10,8 @@ node_modules
 /.db
 /git.sh
 target
+# 并行构建的隔离输出目录（见根 pom 的 build.suffix）
+target-*
 *.bak
 build/*
 go.sum

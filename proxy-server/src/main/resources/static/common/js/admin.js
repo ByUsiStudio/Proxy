@@ -1386,6 +1386,138 @@
   };
 
   /* ------------------------------------------------------------------ *
+   * 16.1 图表导出 / 时间格式化 / 日志行渲染 / 告警徽标
+   * ------------------------------------------------------------------ */
+
+  /**
+   * 把图表 Canvas 导出为 PNG 下载。
+   * 说明：这是纯客户端操作，不上传任何数据；背景在导出前临时填白，
+   * 否则透明背景在多数看图软件里会显示为全黑。
+   */
+  Admin.chart.toPng = function (canvas, filename) {
+    if (!canvas || typeof canvas.toDataURL !== 'function') {
+      Admin.toastWarn('当前浏览器不支持图表导出');
+      return;
+    }
+    var target = canvas;
+    var ctx = canvas.getContext('2d');
+    var backup = null;
+    try {
+      // 复制一份带白底的画布，避免破坏页面上正在显示的图表
+      var copy = document.createElement('canvas');
+      copy.width = canvas.width;
+      copy.height = canvas.height;
+      var cctx = copy.getContext('2d');
+      cctx.fillStyle = '#ffffff';
+      cctx.fillRect(0, 0, copy.width, copy.height);
+      cctx.drawImage(canvas, 0, 0);
+      target = copy;
+    } catch (e) {
+      // 跨域污染等异常：退化为直接导出原画布
+      target = canvas;
+    }
+    var name = (filename || 'chart') + '-' + Admin.timestamp() + '.png';
+    var link = Admin.el('a', { href: target.toDataURL('image/png'), download: name });
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    Admin.toastOk('图表已导出为 PNG');
+  };
+
+  /** 为一张图表卡片绑定「导出 PNG」按钮（按钮通过 data-chart-export="canvasId" 声明）。 */
+  Admin.bindChartExports = function (root) {
+    $$('[data-chart-export]', root || document).forEach(function (btn) {
+      if (btn.getAttribute('data-chart-bound') === '1') return;
+      btn.setAttribute('data-chart-bound', '1');
+      btn.addEventListener('click', function () {
+        var canvas = document.getElementById(btn.getAttribute('data-chart-export'));
+        Admin.chart.toPng(canvas, btn.getAttribute('data-chart-name') || 'chart');
+      });
+    });
+  };
+
+  /** 把毫秒时间戳 / 时间串统一格式化为「YYYY-MM-DD HH:mm:ss」。 */
+  Admin.fmtDateTime = function (value) {
+    if (value === null || value === undefined || value === '') return '—';
+    var d;
+    var text = String(value).trim();
+    if (/^\d{10,13}$/.test(text)) {
+      var n = Number(text);
+      d = new Date(text.length === 10 ? n * 1000 : n);
+    } else {
+      d = new Date(text.replace(' ', 'T'));
+    }
+    if (isNaN(d.getTime())) return text;
+    function p(v) { return (v < 10 ? '0' : '') + v; }
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' +
+      p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+  };
+
+  /**
+   * 渲染日志行（按级别着色）。
+   * 全部以文本节点写入，不解析 HTML；行内容来自服务端读取的日志文件，
+   * 可能包含用户可控字符串（域名、UA 等），因此这里必须保持纯文本。
+   */
+  Admin.logLines = function (container, text, options) {
+    if (!container) return 0;
+    var opts = options || {};
+    var keyword = String(opts.keyword || '').trim().toLowerCase();
+    var limit = opts.limit || 5000;
+    container.textContent = '';
+    var lines = String(text === null || text === undefined ? '' : text).split(/\r?\n/);
+    if (lines.length && lines[lines.length - 1] === '') lines.pop();
+    var shown = 0;
+    lines.forEach(function (line, index) {
+      if (shown >= limit) return;
+      if (keyword && line.toLowerCase().indexOf(keyword) === -1) return;
+      var level = 'info';
+      if (/\b(ERROR|FATAL)\b/.test(line)) level = 'error';
+      else if (/\bWARN\b/.test(line)) level = 'warn';
+      else if (/\bDEBUG|TRACE\b/.test(line)) level = 'debug';
+      container.appendChild(Admin.el('div', { class: 'log-line log-line--' + level }, [
+        Admin.el('span', {
+          class: 'log-line__time',
+          text: String(opts.startLine ? (opts.startLine + index) : (index + 1))
+        }),
+        Admin.el('span', { class: 'log-line__msg', text: line })
+      ]));
+      shown++;
+    });
+    if (!shown) {
+      container.appendChild(Admin.el('div', {
+        class: 'empty',
+        text: keyword ? '没有匹配的日志行' : '日志文件为空'
+      }));
+    }
+    return shown;
+  };
+
+  /**
+   * 顶栏「失败事件」告警徽标：数量 > 0 时显示为可点击的红色徽标。
+   *
+   * @param {number} count 未处理/近期的失败事件数
+   * @param {string} href  点击跳转地址
+   * @param {string} title 悬浮说明
+   */
+  Admin.renderAlertBadge = function (count, href, title) {
+    var slot = document.getElementById('alertSlot');
+    if (!slot) return;
+    slot.textContent = '';
+    var n = Number(count) || 0;
+    if (n <= 0) return;
+    var node = Admin.el('a', {
+      class: 'alert-badge',
+      href: href || '/admin/audit?result=fail',
+      title: title || ('近期有 ' + n + ' 条失败事件'),
+      'aria-label': title || ('近期有 ' + n + ' 条失败事件')
+    }, [
+      Admin.svgNode('warn', 'icon--sm'),
+      Admin.el('span', { class: 'alert-badge__count', text: n > 99 ? '99+' : String(n) })
+    ]);
+    slot.appendChild(node);
+  };
+
+  /* ------------------------------------------------------------------ *
    * 17. 启动
    * ------------------------------------------------------------------ */
   function boot() {
@@ -1395,6 +1527,7 @@
     Admin.bindTableFilters();
     Admin.bindSortableTables();
     Admin.initPagers();
+    Admin.bindChartExports();
 
     drawer = $('#main-drawer') || $('.admin-drawer');
     scrim = $('#drawer-scrim') || $('.scrim');

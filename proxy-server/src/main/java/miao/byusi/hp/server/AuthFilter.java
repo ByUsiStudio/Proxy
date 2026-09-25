@@ -42,7 +42,17 @@ public class AuthFilter implements FilterAdapter {
             "/admin/log", "/admin/tips", "/admin/core", "/admin/app", "/admin/reg", "/admin/pay",
             "/admin/login",
             // 只读接口（导出 / 图表数据）
-            "/admin/log/export", "/admin/log/stats", "/admin/config/export"
+            "/admin/log/export", "/admin/log/stats", "/admin/config/export",
+            // ---- 本轮新增：仪表盘 / 审计日志 / 系统日志 / 配额 / 模板 / 报表 / 全局搜索 ----
+            // 全部为只读 GET（导出与查看），不含任何状态变更操作；
+            // 状态变更一律走 POST，由下面的严格同源校验保护。
+            "/admin/dashboard", "/admin/dashboard/data",
+            "/admin/audit", "/admin/audit/export", "/admin/audit/stats",
+            "/admin/syslog", "/admin/syslog/list", "/admin/syslog/view", "/admin/syslog/download",
+            "/admin/quota", "/admin/quota/export",
+            "/admin/template", "/admin/template/export",
+            "/admin/report", "/admin/report/download",
+            "/admin/search"
     ));
 
     /**

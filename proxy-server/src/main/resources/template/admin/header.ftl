@@ -44,6 +44,14 @@
         <span class="brand__sub" data-page-title></span>
     </a>
     <div class="admin-appbar__actions">
+        <#--  全局搜索：跨用户/域名/配置/统计/审计的即时检索  -->
+        <form class="search-mini" method="get" action="/admin/search" role="search">
+            <span class="search-mini__icon" data-icon="search" data-icon-class="icon--sm"></span>
+            <input class="search-mini__input" type="search" name="q" id="globalSearchInput"
+                   placeholder="全局搜索（用户 / 域名 / 配置 / 日志）" aria-label="全局搜索"
+                   value="<#if (keyword!"")?has_content>${keyword?html}</#if>"/>
+        </form>
+        <span id="alertSlot" class="icon-slot" title="失败事件告警"></span>
         <span id="themeSlot" class="icon-slot"></span>
         <a class="btn btn--ghost btn--sm" href="/admin/logout">
             <span data-icon="logout" data-icon-class="icon--sm"></span>
@@ -55,12 +63,20 @@
 <div class="admin-shell">
     <aside class="admin-drawer" id="main-drawer" aria-label="后台导航">
         <nav class="nav">
+            <div class="nav__group">概览</div>
+            <a class="nav__link" href="/admin/dashboard">
+                <span data-icon="activity"></span><span>仪表盘</span>
+            </a>
+
             <div class="nav__group">穿透服务</div>
             <a class="nav__link" href="/admin/proxy">
                 <span data-icon="layers"></span><span>穿透集群</span>
             </a>
             <a class="nav__link" href="/admin/config">
                 <span data-icon="sync"></span><span>自动穿透</span>
+            </a>
+            <a class="nav__link" href="/admin/template">
+                <span data-icon="box"></span><span>隧道模板</span>
             </a>
 
             <div class="nav__group">用户与域名</div>
@@ -72,6 +88,20 @@
             </a>
             <a class="nav__link" href="/admin/log">
                 <span data-icon="list"></span><span>用户日志</span>
+            </a>
+            <a class="nav__link" href="/admin/quota">
+                <span data-icon="shield"></span><span>用量配额</span>
+            </a>
+            <a class="nav__link" href="/admin/report">
+                <span data-icon="chart"></span><span>统计报表</span>
+            </a>
+
+            <div class="nav__group">日志与审计</div>
+            <a class="nav__link" href="/admin/audit">
+                <span data-icon="shieldCheck"></span><span>审计日志</span>
+            </a>
+            <a class="nav__link" href="/admin/syslog">
+                <span data-icon="terminal"></span><span>系统日志</span>
             </a>
 
             <div class="nav__group">内容与版本</div>

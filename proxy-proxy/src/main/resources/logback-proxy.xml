@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- ==========================================================================
+     proxy-proxy（中转节点）日志配置
+     通过 app.properties 的 logbackName=logback-proxy.xml 启用。
+
+     与 proxy-server 的区别：文件名前缀为 proxy-node，
+     便于同一台机器上同时部署云端与节点时区分日志。
+     文件布局（相对进程工作目录）：
+       log/proxy-node.log / log/proxy-node-error.log / log/proxy-node-YYYY-MM-DD.N.log
+     ========================================================================== -->
+<configuration debug="false" scan="false">
+
+    <define name="dataFormatConsole" class="cn.hserver.core.log.HServerDataDefinerConsole"/>
+    <define name="dataFormatFile" class="cn.hserver.core.log.HServerDataDefinerFile"/>
+
+    <property name="STDOUT_PATTERN" value="${dataFormatConsole}"/>
+    <property name="FILE_PATTERN" value="${dataFormatFile}"/>
+
+    <property name="LOG_HOME" value="${proxy.log.dir:-log}"/>
+    <property name="LOG_NAME" value="${proxy.log.name:-proxy-node}"/>
+
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="ch.qos.logback.core.encoder.LayoutWrappingEncoder">
+            <layout class="cn.hserver.core.log.HServerPatternLayout">
+                <pattern>${STDOUT_PATTERN}</pattern>
+            </layout>
+        </encoder>
+    </appender>
+
+    <appender name="HSERVER_EXT" class="cn.hserver.core.log.HServerLogAsyncAppender"/>
+
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_HOME}/${LOG_NAME}.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_HOME}/${LOG_NAME}-%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+            <maxFileSize>20MB</maxFileSize>
+            <maxHistory>14</maxHistory>
+            <totalSizeCap>2GB</totalSizeCap>
+        </rollingPolicy>
+        <encoder class="ch.qos.logback.core.encoder.LayoutWrappingEncoder">
+            <layout class="cn.hserver.core.log.HServerPatternLayout">
+                <pattern>${FILE_PATTERN}</pattern>
+            </layout>
+        </encoder>
+    </appender>
+
+    <appender name="FILE_ERROR" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_HOME}/${LOG_NAME}-error.log</file>
+        <filter class="ch.qos.logback.classic.filter.LevelFilter">
+            <level>ERROR</level>
+            <onMatch>ACCEPT</onMatch>
+            <onMismatch>DENY</onMismatch>
+        </filter>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_HOME}/${LOG_NAME}-error-%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+            <maxFileSize>20MB</maxFileSize>
+            <maxHistory>14</maxHistory>
+            <totalSizeCap>2GB</totalSizeCap>
+        </rollingPolicy>
+        <encoder class="ch.qos.logback.core.encoder.LayoutWrappingEncoder">
+            <layout class="cn.hserver.core.log.HServerPatternLayout">
+                <pattern>${FILE_PATTERN}</pattern>
+            </layout>
+        </encoder>
+    </appender>
+
+    <root level="${proxy.log.level:-info}">
+        <appender-ref ref="STDOUT"/>
+        <appender-ref ref="HSERVER_EXT"/>
+        <appender-ref ref="FILE"/>
+        <appender-ref ref="FILE_ERROR"/>
+    </root>
+
+</configuration>

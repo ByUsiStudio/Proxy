@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- ==========================================================================
+     proxy-server 日志配置（通过 app.properties 的 logbackName=logback-proxy.xml 启用）
+
+     为什么自定义：
+       HServer 自带的 logback-hserver.xml 虽然也有滚动文件输出，但默认
+       「单文件 100MB / 保留 60 份 / 归档目录为 log/log」对中小部署过于宽松，
+       且后台「系统日志」页需要一个**可预测、可安全列举**的目录。
+       本配置把路径、大小与保留份数固定下来，便于后台查看与下载。
+
+     日志文件布局（相对进程工作目录）：
+       log/proxy-server.log                    当前日志
+       log/proxy-server-error.log              仅 ERROR
+       log/proxy-server-YYYY-MM-DD.N.log       按天 + 按大小归档
+       log/proxy-server-error-YYYY-MM-DD.N.log
+
+     安全提示：日志可能包含账号、内网地址等业务信息，
+       后台的查看/下载接口必须做目录包含校验（见 SysLogController）。
+     ========================================================================== -->
+<configuration debug="false" scan="false">
+
+    <define name="dataFormatConsole" class="cn.hserver.core.log.HServerDataDefinerConsole"/>
+    <define name="dataFormatFile" class="cn.hserver.core.log.HServerDataDefinerFile"/>
+
+    <property name="STDOUT_PATTERN" value="${dataFormatConsole}"/>
+    <property name="FILE_PATTERN" value="${dataFormatFile}"/>
+
+    <!-- 日志根目录与文件名前缀：与后台「系统日志」页的默认扫描目录保持一致 -->
+    <property name="LOG_HOME" value="${proxy.log.dir:-log}"/>
+    <property name="LOG_NAME" value="${proxy.log.name:-proxy-server}"/>
+
+    <!-- 控制台 -->
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder class="ch.qos.logback.core.encoder.LayoutWrappingEncoder">
+            <layout class="cn.hserver.core.log.HServerPatternLayout">
+                <pattern>${STDOUT_PATTERN}</pattern>
+            </layout>
+        </encoder>
+    </appender>
+
+    <!-- HServer 扩展输出（保留，框架内部会往这里投递可视化数据） -->
+    <appender name="HSERVER_EXT" class="cn.hserver.core.log.HServerLogAsyncAppender"/>
+
+    <!-- 全量日志：单文件 20MB，按天 + 序号滚动，保留 14 份，总量上限 2GB -->
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_HOME}/${LOG_NAME}.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_HOME}/${LOG_NAME}-%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+            <maxFileSize>20MB</maxFileSize>
+            <maxHistory>14</maxHistory>
+            <totalSizeCap>2GB</totalSizeCap>
+            <cleanHistoryOnStart>false</cleanHistoryOnStart>
+        </rollingPolicy>
+        <encoder class="ch.qos.logback.core.encoder.LayoutWrappingEncoder">
+            <layout class="cn.hserver.core.log.HServerPatternLayout">
+                <pattern>${FILE_PATTERN}</pattern>
+            </layout>
+        </encoder>
+    </appender>
+
+    <!-- 仅 ERROR：便于故障排查时快速定位 -->
+    <appender name="FILE_ERROR" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_HOME}/${LOG_NAME}-error.log</file>
+        <filter class="ch.qos.logback.classic.filter.LevelFilter">
+            <level>ERROR</level>
+            <onMatch>ACCEPT</onMatch>
+            <onMismatch>DENY</onMismatch>
+        </filter>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_HOME}/${LOG_NAME}-error-%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+            <maxFileSize>20MB</maxFileSize>
+            <maxHistory>14</maxHistory>
+            <totalSizeCap>2GB</totalSizeCap>
+            <cleanHistoryOnStart>false</cleanHistoryOnStart>
+        </rollingPolicy>
+        <encoder class="ch.qos.logback.core.encoder.LayoutWrappingEncoder">
+            <layout class="cn.hserver.core.log.HServerPatternLayout">
+                <pattern>${FILE_PATTERN}</pattern>
+            </layout>
+        </encoder>
+    </appender>
+
+    <!-- 默认 info：生产环境不必把 debug 全量落盘；需要排查时改这里或加临时 logger -->
+    <root level="${proxy.log.level:-info}">
+        <appender-ref ref="STDOUT"/>
+        <appender-ref ref="HSERVER_EXT"/>
+        <appender-ref ref="FILE"/>
+        <appender-ref ref="FILE_ERROR"/>
+    </root>
+
+</configuration>

@@ -137,5 +137,71 @@ INSERT INTO "sys_port"("id", "user_id", "port","create_time") VALUES ('2', '3', 
 INSERT INTO "sys_port"("id", "user_id", "port","create_time") VALUES ('3', '3', '10000','1609660694000');
 INSERT INTO "sys_port"("id", "user_id", "port","create_time") VALUES ('4', '3', '12000','1609660694000');
 
+-- ----------------------------
+-- 审计日志（后台与开放接口的可追责留痕）
+-- 记录「谁 / 何时 / 来源 IP / 做了什么 / 结果」，供后台「审计日志」页查询与导出。
+-- 安全约定：detail 字段只写业务标识（用户名、配置 id、文件名等），
+--           **绝不写入口令、令牌、会话 ID**。
+-- ----------------------------
+DROP TABLE IF EXISTS "sys_audit_log";
+CREATE TABLE "sys_audit_log" (
+  "id" text NOT NULL,
+  "actor" TEXT,
+  "actor_type" TEXT,
+  "action" TEXT,
+  "target" TEXT,
+  "detail" TEXT,
+  "result" TEXT,
+  "ip" TEXT,
+  "user_agent" TEXT,
+  "create_time" TEXT,
+  PRIMARY KEY ("id")
+);
+CREATE INDEX IF NOT EXISTS "idx_audit_create_time" ON "sys_audit_log" ("create_time");
+CREATE INDEX IF NOT EXISTS "idx_audit_action" ON "sys_audit_log" ("action");
+
+-- ----------------------------
+-- 用量配额（按账号限制隧道数 / 并发连接 / 月度流量）
+-- over_limit 由统计任务在每次汇总后刷新，后台可据此看到「已超限」账号。
+-- ----------------------------
+DROP TABLE IF EXISTS "sys_quota";
+CREATE TABLE "sys_quota" (
+  "id" text NOT NULL,
+  "user_id" text NOT NULL,
+  "username" TEXT,
+  "max_tunnels" Integer,
+  "max_ports" Integer,
+  "max_conns" Integer,
+  "monthly_receive" TEXT,
+  "monthly_send" TEXT,
+  "enabled" Integer,
+  "over_limit" TEXT,
+  "over_reason" TEXT,
+  "note" TEXT,
+  "create_time" TEXT,
+  "update_time" TEXT,
+  PRIMARY KEY ("id")
+);
+CREATE INDEX IF NOT EXISTS "idx_quota_user" ON "sys_quota" ("user_id");
+
+-- ----------------------------
+-- 隧道模板（把一组隧道配置存成模板，对指定账号一键下发）
+-- items 为 JSON 数组：[{"type":"TCP","userHost":"127.0.0.1:8080","serverHost":"1.2.3.4:9090","domain":"demo","port":"8080"}]
+-- 模板**不含口令**，下发时由服务端按目标账号补齐。
+-- ----------------------------
+DROP TABLE IF EXISTS "sys_template";
+CREATE TABLE "sys_template" (
+  "id" text NOT NULL,
+  "name" TEXT NOT NULL,
+  "description" TEXT,
+  "items" TEXT,
+  "created_by" TEXT,
+  "apply_count" Integer,
+  "create_time" TEXT,
+  "update_time" TEXT,
+  PRIMARY KEY ("id")
+);
+CREATE INDEX IF NOT EXISTS "idx_template_name" ON "sys_template" ("name");
+
 
 PRAGMA foreign_keys = true;
