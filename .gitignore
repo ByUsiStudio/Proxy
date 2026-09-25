@@ -23,7 +23,7 @@ proxy.zip
 /proxy-android-client/.idea
 /proxy-android-client/build
 # 本地构建缓存（沙箱/CI 下把 Go 缓存放在工作区内）
-/.gocache/
-/.gomodcache/
-/.gotmp/
-/.m2repo/
+.gocache/
+.gomodcache/
+.gotmp/
+.m2repo/
