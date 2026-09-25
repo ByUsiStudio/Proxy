@@ -128,20 +128,54 @@
 
 ---
 
-## 三、验证方式
+## 三、第二轮新增：日志能力与七项功能（v16.1）
+
+### 3.1 日志能力
+
+| 能力 | 落点 | 说明 |
+| --- | --- | --- |
+| **控制台日志落盘 + 轮转** | `proxy-client-golang/pkg/logsink/` | 自实现轮转器（无新依赖）：单文件超限即改名为 `<name>-<时间戳>.log`，保留 `-logKeep` 份；目录 `0700`、文件 `0600`；写入前剥离控制字符并对 `token=/password=/secret=` 打码，**绝不落盘凭据** |
+| **历史日志查询/下载** | `web/console_logs.go` + `web/logs.html` | `GET /console/logs/files｜tail｜download`（均在 `requireSession` 之后并限流）；尾部倒序读取（1MB 有界），路径穿越三重防线；下载用 `fetch` + `X-Proxy-Token` + `blob:`，**令牌不进 URL** |
+| **运行时切换日志级别** | `web/console_logs.go` + 设置页 | `GET/POST /console/log-level`；`logLevel` 由裸 `int` 改为 `atomic.Int32`（修复数据竞争）；级别**不写盘**，重启回到启动参数 |
+| **后台操作审计日志** | `sys_audit_log` 表 + `AuditService` + `admin/audit.ftl` | 记录「谁/何时/来源IP/做了什么/结果」；异步有界队列写入（不阻塞业务、写不动就丢弃并计数）；`detail` 禁止凭据，并有正则脱敏兜底；覆盖后台全部增删改、登录成功/失败、被拦请求、用户登录失败、配额拒绝、模板下发、门户自助申请 |
+| **后台应用日志查看/下载** | `logback-proxy.xml` + `admin/syslog.ftl` | 通过 `app.properties` 的 `logbackName=logback-proxy.xml` 启用自定义 logback：`log/proxy-server.log`（20MB×14 份、总量 2GB）+ 仅 ERROR 的独立文件；后台可列目录、按级别/关键词查看尾部、下载（严格目录包含校验） |
+| **失败事件汇总与告警** | `pkg/events/`、`web/console_logs.go`、后台审计 | 控制台：200 条有界环形缓冲 + 30 秒同键冷却，页头徽标 + 统计页面板；后台：审计 `recentFail`（近 24h）驱动顶栏告警徽标，一键跳转「失败事件」筛选 |
+
+### 3.2 七项功能
+
+| 功能 | 落点 | 要点 |
+| --- | --- | --- |
+| **后台首页仪表盘** | `/admin/dashboard`（`/admin` 也渲染它） | 用户/域名/配置/统计行数、在线节点、近期流量；流量趋势与审计趋势双图表 + PNG 导出；「最近事件」事件流；快捷入口；30 秒自动刷新；顶栏失败事件徽标 |
+| **隧道健康检查与一键诊断** | `/console/diagnose` + 穿透服务页 | 四段报告：本机服务 / 云端可达性 / 每条隧道（含对目标做 2 秒 TCP 拨号探测）/ 配置与环境；总预算 10 秒、最多 50 条、8 并发；结果可在弹窗查看并复制为纯文本 |
+| **用量配额与限流管理** | `sys_quota` 表 + `/admin/quota` + `QuotaService` | 限制隧道数、端口数、并发连接、月度流量；**实际强制**的是「月度流量」与「最大隧道数」（在配置下发时拒绝）；`max_conns`/`max_ports` 仅作记录并已在页面与代码中如实标注；定时任务刷新「超限」状态 |
+| **全局搜索** | `/admin/search` + 顶栏搜索框 | 五个维度（用户/域名/自动穿透配置/流量统计/审计日志）各限 20 条，全部参数化查询、有界；审计结果不返回 `detail`；用户结果不含口令 |
+| **批量隧道模板与一键部署** | `sys_template` 表 + `/admin/template` | 一组隧道配置存为模板（**不含口令**），可导入/导出，对指定账号批量下发；逐条白名单校验并回报失败明细 |
+| **图表与报表导出** | `/admin/report` + `Admin.chart.toPng` | 流量/连接/按端口三张图，均可导出 PNG（客户端合成白底，不上传数据）；CSV/JSON 报表下载；可手动「立即生成」并由定时任务按 `admin.report.interval.hours` 周期性落盘 |
+| **用户自助门户增强** | `/index/usage` + `/index/usage/data` + `/index/export` | 本月/累计用量、按端口与按天图表（页面内自绘 Canvas，不加载 admin.js）、配额展示、我的域名与端口；可自助导出自己的统计数据与隧道配置（**不含口令**）；可提交域名/端口申请（服务端校验 + 每人 3 个上限 + 1 次/分钟限流 + 归属校验，端口范围收紧为 10000~60000 以避开系统与节点保留端口） |
+
+---
+
+## 四、验证方式
 
 ### 自动化检查（可重复执行）
 
 ```bash
-# 三端前端一致性：DOM id 引用、图标名、Admin.* API、危险 sink、外链、模板转义
+# 三端前端一致性：DOM id 引用、图标名、Admin.* API、危险 sink、外链、模板转义、后台内联脚本 id
 node tools/check-frontend.mjs
+
+# Java 注释平衡：防「丢失的块注释结束符把整段代码（含路由）吞进注释」
+node tools/check-java.mjs
 
 # 管理后台模板标签平衡
 powershell -NoProfile -ExecutionPolicy Bypass -File check-tags.ps1
 
-# FreeMarker 模板语法（只解析不渲染；编译期发现不了模板语法错误）
+# FreeMarker 模板语法（只解析）
 FM="$USERPROFILE/.m2/repository/org/freemarker/freemarker/2.3.31/freemarker-2.3.31.jar"
 java -cp "$FM" tools/template-check/TemplateCheck.java \
+     proxy-server/src/main/resources/template proxy-proxy/src/main/resources/template
+
+# FreeMarker 模板渲染（空数据桩模型，捕获求值期错误）
+java -cp "$FM" tools/template-check/RenderSmoke.java \
      proxy-server/src/main/resources/template proxy-proxy/src/main/resources/template
 
 # 纯前端二维码编码器：与 skip2/go-qrcode 逐模块比对（见 tools/README.md）
@@ -150,7 +184,7 @@ node tools/qr-verify/compare.mjs --gen
 node tools/qr-verify/compare.mjs
 
 # 编译
-cd proxy-client-golang && go vet ./... && go build ./...
+cd proxy-client-golang && go vet ./... && go build ./... && go test ./... -count=1
 mvn -o -DskipTests compile
 ```
 
@@ -158,12 +192,15 @@ mvn -o -DskipTests compile
 
 | 项目 | 结果 |
 | --- | --- |
-| `tools/check-frontend.mjs` | 全部通过：8 个页面脚本共 164 个 DOM id 引用全部存在；Go 控制台 47 个 / 后台 51 个图标名全部有效；后台模板引用的 26 个 `Admin.*` API 全部存在；危险 sink 仅剩「内置图标常量」用法；无外部 CDN 引用；**23 个 FreeMarker 模板**（后台/站点 17 + 节点端 6）均无未转义插值 |
-| `check-tags.ps1` | 12 个后台模板全部 OK |
-| `tools/template-check` | 23 个 FreeMarker 模板全部解析通过（含本轮重写的 `admin/log.ftl`、`admin/config.ftl`） |
-| `tools/qr-verify` | 35/35 一致（其中 4 项仅掩码选择不同、矩阵等价），覆盖版本 1-10 容量边界与 UTF-8 多字节内容 |
-| `go vet ./...` / `go build ./...` | 通过 |
-| `mvn -o -DskipTests compile` | 通过 |
+| `tools/check-frontend.mjs` | 全部通过：9 个 Go 页面脚本共 196 个 DOM id 引用存在；后台 17 个模板共 144 个内联脚本 id 引用存在；Go 50 个 / 后台 51 个图标名有效；后台引用的 32 个 `Admin.*` API 存在；危险 sink 仅剩「内置图标常量」；无外部 CDN；**31 个 FreeMarker 模板**无未转义插值 |
+| `tools/check-java.mjs` | 154 个 Java 文件注释平衡；1 处**有意**注释掉的路由（`/app/download`）作为提示列出 |
+| `check-tags.ps1` | 19 个后台/站点模板全部 OK |
+| `tools/template-check` 解析 | 31 个模板全部解析通过 |
+| `tools/template-check` 渲染 | **31 个模板在空数据桩模型下全部渲染通过**（无求值期 500） |
+| `tools/qr-verify` | 35/35 一致（4 项仅掩码选择不同、矩阵等价） |
+| `go build` / `go vet` / `gofmt -l` | 通过 / 通过 / 无输出 |
+| `go test ./... -count=1` | 通过（`Protol`、`pkg/events`、`pkg/logsink`、`web` 四组，含日志轮转、尾部读取、路径校验、级别原子性、路由端到端） |
+| `mvn -o -DskipTests compile`（清空 target 后全量重编） | 14 + 107 + 33 个源文件编译，BUILD SUCCESS |
 
 ### 手工回归要点
 
@@ -176,3 +213,34 @@ mvn -o -DskipTests compile
    以 `=`/`+`/`-`/`@` 开头的单元格不被当作公式执行。
 7. 后台自动穿透页：导入 JSON（含非法条目）→ 检查逐条失败原因 → 生成二维码 → 手机扫码校验内容。
 8. 远程访问控制台：仅带令牌可进入；去掉令牌应被拦截；`?token=` 使用后地址栏应已清除令牌。
+
+#### 第二轮新增功能的回归要点
+
+9. **日志文件**：启动客户端 > 产生若干隧道事件 > 打开「日志文件」页 → 文件列表有当前文件且
+   大小在增长 → 按级别/关键词查看尾部 → 下载的文件内容与页面一致；把 `-logMaxMB` 调到 1
+   制造轮转 → 列表出现 `<name>-<时间戳>.log` 且数量不超过 `-logKeep`。
+10. **运行时日志级别**：在设置页切到 `debug` → 日志立刻变详细（页面上与日志文件里都生效）；
+    重启客户端后回到启动参数指定的级别。
+11. **失败事件**：故意填错云端地址或停止一条隧道 → 页头出现失败事件徽标 → 打开列表能看到
+    时间/类型/原因，文字均为纯文本（含 `<` 等字符不会被当作 HTML）。
+12. **一键诊断**：在穿透服务页点「一键诊断」→ 报告包含本机/云端/每条隧道/配置四段，
+    目标不可达时结论为 `fail` 并给出原因；10 秒内返回；「复制诊断报告」得到纯文本。
+13. **后台仪表盘**：登录后进入 `/admin` 应渲染仪表盘且左侧「仪表盘」高亮；图表随主题切换重绘；
+    「导出 PNG」得到白底图片；顶栏失败事件徽标可点击跳转到审计页的失败筛选。
+14. **审计日志**：做一次「删除用户 / 导入配置 / 批量删除统计」→ 审计页出现对应记录
+    （操作者/动作/目标/结果/来源IP），失败的尝试也有记录；导出 CSV 与页面口径一致；
+    详情弹窗中的内容不被当作 HTML 解析。
+15. **系统日志**：系统日志页能列出 `log/proxy-server*.log` → 选择文件查看尾部 → 下载可用；
+    手工构造 `?file=../../db.db` 应被拒绝（不返回文件内容）。
+16. **用量配额**：给某账号设 1GB 月度流量并把统计改成超限 → 该账号的自动穿透配置不再下发
+    （客户端日志提示或静默跳过）；后台「刷新超限状态」后配额页显示超限徽标与原因。
+17. **隧道模板**：新建模板（含非法条目应被逐条拒绝）→ 导出 JSON → 重新导入 → 对 1~2 个账号
+    一键下发 → 自动穿透页能看到新增配置，且模板**不含口令**。
+18. **报表**：选择 7/14/30 天 → 三张图与表格数字一致 → 导出 CSV/JSON 打开正常 →
+    「立即生成报表」在 `report/` 目录产生文件。
+19. **全局搜索**：顶栏搜索框输入用户名/域名/端口 → 结果按五组分类显示，计数正确；
+    无结果时显示空状态；结果中的 `<script>` 之类输入以纯文本呈现（不执行）。
+20. **自助门户**：登录站点后打开「我的用量」→ 本月/累计数字与图表显示正常（深色模式同样正确）；
+    导出自己的统计数据与配置（配置**不含口令**）→ 提交域名申请与端口申请各一次，
+    第二次立即提交应被限流提示；端口填 `80` 应被范围校验拒绝。
+

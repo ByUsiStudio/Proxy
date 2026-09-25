@@ -191,16 +191,33 @@
 11. **同源比较变严格**：CSRF 的 Origin/Referer 校验现在比较
     **scheme + host + port**（缺省端口按协议补齐）。`cors.allowedOrigins`
     中的条目必须带 `http://` 或 `https://` 前缀且端口一致，否则不会匹配。
+12. **数据库需要迁移**：第三轮新增三张表（`sys_audit_log`、`sys_quota`、`sys_template`）。
+    全新部署由 `db/init.sql` 自动创建；**已有部署必须执行** `db/migrate-v16.1.sql`
+    （幂等，`CREATE TABLE IF NOT EXISTS`，不删数据）。
+13. **新增配置项**（`proxy-server/src/main/resources/app.properties`）：
+    `logbackName=logback-proxy.xml`（启用自定义日志轮转）、`admin.syslog.dir=log`、
+    `admin.syslog.max.lines=2000`、`admin.report.dir=report`、`admin.report.interval.hours=24`。
+    节点端 `proxy-proxy` 同样新增 `logbackName=logback-proxy.xml`（日志名 `proxy-node`）。
+14. **控制台新增参数**（`proxy-client`）：`-logDir`(默认 `logs`)、`-logFile`(默认 `proxy-client.log`)、
+    `-logMaxMB`(默认 `10`)、`-logKeep`(默认 `5`)，对应环境变量 `LOG_DIR`/`LOG_FILE`/`LOG_MAX_MB`/`LOG_KEEP`。
+15. **后台新增只读 GET 路由**：`/admin/dashboard`、`/admin/dashboard/data`、`/admin/audit`、
+    `/admin/audit/export`、`/admin/audit/stats`、`/admin/syslog`、`/admin/syslog/list`、
+    `/admin/syslog/view`、`/admin/syslog/download`、`/admin/quota`、`/admin/quota/export`、
+    `/admin/template`、`/admin/template/export`、`/admin/report`、`/admin/report/download`、
+    `/admin/report/data`、`/admin/search`；状态变更全部为 POST。
+    反向代理若按路径做访问控制，需要同步放行。`/admin` 现在渲染仪表盘（不再是 302 到 `/admin/proxy`）。
 
 ---
 
-## 七、静态检查工具（本轮新增，可重复执行）
+## 七、静态检查工具（可重复执行）
 
 | 工具 | 作用 |
 | --- | --- |
-| `tools/check-frontend.mjs` | 三端前端一致性：DOM id 引用 ↔ HTML 定义、图标名 ↔ 常量表、模板引用的 `Admin.*` ↔ 实际导出、危险 sink（`innerHTML`/`eval`/内联事件…）、外部 CDN 引用、FreeMarker 未转义插值 |
+| `tools/check-frontend.mjs` | 三端前端一致性：DOM id 引用 ↔ HTML 定义、图标名 ↔ 常量表、模板引用的 `Admin.*` ↔ 实际导出、后台内联脚本 id ↔ 模板定义、危险 sink（`innerHTML`/`eval`/内联事件…）、外部 CDN 引用、FreeMarker 未转义插值 |
+| `tools/check-java.mjs` | **Java 注释平衡**：捕获「丢失块注释结束符导致整段代码（含路由）被吞进注释」——编译期与其它检查都看不出来（第三轮据此拦截了 N1） |
 | `check-tags.ps1` | 后台模板 HTML 标签平衡 |
-| `tools/template-check/TemplateCheck.java` | 用 FreeMarker 官方解析器解析全部模板（编译期发现不了模板语法错误） |
+| `tools/template-check/TemplateCheck.java` | 用 FreeMarker 官方解析器**解析**全部模板（发现语法错误） |
+| `tools/template-check/RenderSmoke.java` | 用宽松桩模型**渲染**全部模板（发现 `?c` 用在字符串等求值期错误） |
 | `tools/qr-verify/` | 自实现的纯前端二维码编码器与 `skip2/go-qrcode` 逐模块比对 |
 
 用法见 [`tools/README.md`](../tools/README.md) 与 [`FRONTEND.md`](./FRONTEND.md)。
@@ -265,9 +282,10 @@
 | Go 格式 | `gofmt -l .` | 无输出 |
 | Go 测试 | `go test ./... -count=1` | 通过（`Protol`、`web` 两个包有测试） |
 | Java 编译 | `mvn -o -DskipTests compile` | 全模块 BUILD SUCCESS |
-| 前端一致性 | `node tools/check-frontend.mjs` | 全部通过（含 `proxy-server` 17 个 + `proxy-proxy` 6 个模板的转义扫描） |
-| 模板标签平衡 | `check-tags.ps1` | 12 个后台模板 OK |
-| 模板语法 | `tools/template-check/TemplateCheck.java` | 23 个模板全部解析通过 |
+| 前端一致性 | `node tools/check-frontend.mjs` | 全部通过（含 31 个模板的转义扫描、144 个后台内联脚本 id 引用） |
+| Java 注释平衡 | `node tools/check-java.mjs` | 154 个文件通过（捕获了 N1：路由被注释吞掉） |
+| 模板标签平衡 | `check-tags.ps1` | 19 个后台/站点模板 OK |
+| 模板语法 / 渲染 | `tools/template-check/*.java` | 31 个模板解析通过；31 个模板在空数据桩模型下渲染通过 |
 | 二维码编码器 | `tools/qr-verify/compare.mjs` | 35/35 与参考实现一致 |
 
 ---
@@ -294,9 +312,54 @@
 7. **历史数据**：默认口令账号需强制重置；非邮箱格式的历史账号可能无法通过账号白名单校验，需要迁移。
 8. **后台模板转义**：该框架默认不转义，新增模板必须显式转义；
    `tools/check-frontend.mjs` 的 `ftl-escape` 分组已对此做回归检查。
-9. **模板转义回归覆盖**：本轮起 `tools/check-frontend.mjs` 的 `ftl-escape` 分组
-   已同时覆盖 `proxy-server/template`（17 个）与 `proxy-proxy/template`（6 个）模板，
-   后续新增模板若漏转义会在检查中报出。
+9. **门户自助申请缺少审批流**：目前「申请域名/端口」等于校验后直接写入归属记录
+   （页面标注为「已提交，等待解析生效」）。真正的审批需要新增审批表
+   （id/user_id/type/value/status/approver/time），本轮未做。
+10. **配额仅部分强制**：只有「月度流量」与「最大隧道数」在配置下发时真正拦截；
+    `max_conns`（云端看不到实时连接数）与 `max_ports`（`sys_port` 是管理员授予的固定端口，
+    与隧道实际占用端口不是同一概念）仅作记录，已在代码与页面明确标注。
+11. **审计日志未纳入轮转清理的运维约束**：已提供 `removeExpired(keepDays)`，
+    但仍需由运维决定保留期并通过定时任务调用（当前未默认开启删除，避免误删留痕）。
+
+---
+
+## 十、第三轮：新增能力的针对性安全审查（v16.1）
+
+新增功能（日志落盘、审计日志、系统日志查看、配额、模板、报表、全局搜索、自助门户）
+一并做了针对性安全审查。以下为**设计层面的安全决定**与**本轮发现并修复的问题**。
+
+### 10.1 新增能力的安全边界
+
+| 能力 | 安全决定 |
+| --- | --- |
+| 控制台日志落盘 | 写盘前剥离控制字符（防止远端字符串伪造日志行）、对 `token=/password=/secret=` 正则打码、**绝不落盘控制台令牌**；目录 `0700`、文件 `0600` |
+| 日志文件查询/下载 | 三重路径穿越防线：`filepath.Base(name)==name`、拒绝 `/ \ NUL`、只接受「活动文件名」或「`<主名>-<时间戳>[-n].ext`」格式；再用 `filepath.Rel` + 绝对路径前缀复核（大小写不敏感）；下载文件名由服务端重新生成，不回显客户端输入；`X-Content-Type-Options: nosniff` |
+| 审计日志 | 异步有界队列 + 守护写线程（写不动就丢弃并计数，不影响业务）；`detail` 只允许业务标识，并有 `password=/token=/secret=` 正则脱敏兜底；IP 取**真实 TCP 对端**；只审计状态变更与失败事件，**不审计读页面**（避免刷爆表） |
+| 后台系统日志查看 | 只读且限定在配置的日志目录内，目录不存在时返回空列表而不是报错；读取有行数与字节上限 |
+| 全局搜索 | 五个维度全部**参数化查询 + 结果条数上限**；审计维度**不返回 `detail`/`user_agent`**；用户维度不返回口令；表不存在时降级而不是 500 |
+| 用户自助门户 | 身份**只从 `AuthFilter` 写入的会话用户名获取**，从不信任任何客户端传入的 username/userId；域名/端口申请均经 `SafeInputUtil` 白名单校验 + 每账号 3 个上限 + 1 次/分钟限流 + 唯一性/占用检查；ID 由服务端生成 UUID；导出只导出本人数据且**不含口令** |
+| 用量配额 | 在**配置下发时**强制（超限账号不再拿到隧道配置、也不再允许新增），避免云端去猜实时连接数；未强制执行的字段（`max_conns`/`max_ports`）在代码与页面中**明确标注为仅记录**，不假装已生效 |
+| 隧道模板 | 模板内容**永不包含口令**；导入/下发逐条白名单校验并回报失败明细；下发受 `PROXY_SIZE` 与配额双重约束 |
+
+### 10.2 本轮发现并修复的问题
+
+| # | 严重度 | 问题 | 修复 |
+| --- | --- | --- | --- |
+| N1 | **高** | `ConfigController.listDevice` 的 Javadoc **丢失了块注释结束符**，导致紧随其后的下一个结束符（约 70 行之后）之间的全部内容——包括 `@GET("listDevice")` 整个处理器、限流、凭据校验、配额拒绝与归属过滤——**全部变成注释**。后果：该路由根本未注册，客户端自动穿透引导接口 404；且 `removeByGet` 的 Javadoc 被一并吞掉。**javac 编译通过、全部静态检查通过** | 补回丢失的结束符；新增 `tools/check-java.mjs` 用注释状态机捕获同类问题（Javadoc 内出现 `@GET/@POST` 即判失败），并在文档中记录为「发布前拦截」的缺陷 |
+| N2 | 中 | 门户自助申请端口放行 `1..65535`，允许申请 80/443 或节点自身监听端口，可能与节点进程冲突 | 收紧为 `10000..60000`（与既有 `/server/portAdd` 一致），边界定义为单一常量并在代码与页面注明原因 |
+| N3 | 中 | 控制台日志级别 `logLevel` 是裸 `int`，被 HTTP 协程与隧道协程并发读写（数据竞争），且新增了运行时切换接口后竞争面扩大 | 改为 `atomic.Int32`；`-race` 验证通过 |
+| N4 | 中 | `web.log` 可能为 nil（宿主忘记调用 `SetLogger` 时），任何日志调用都会 panic——新增的落盘/事件/诊断路径大幅增加了日志调用点，风险随之放大 | 默认使用丢弃式实现，`SetLogger(nil)` 也回落丢弃式 |
+| N5 | 低 | 审计/日志相关文本可能被远端字符串注入 CR/LF 从而伪造日志行 | 落盘与审计入库前统一剥离控制字符 |
+| N6 | 低 | 门户「穿透日志」原先按 `username` **模糊匹配**（`andLike '%name%'`），同后缀账号（`a@qq.com` 与 `xa@qq.com`）可能互相读到记录 | 门户侧改用精确匹配（`andEq`）；已同步修正导出路径 |
+
+> 说明：N1 是**本轮引入、本轮拦截**的缺陷，说明「编译通过 + 静态检查通过」并不足以保证路由存在；
+> `tools/check-java.mjs` 即为补上这一盲区而新增。
+
+### 10.3 与既有架构债的关系
+
+新增能力**没有**触碰第五节第 1 条（口令明文可还原）这一最高优先项：审计与日志都显式避免记录凭据，
+导出与模板都不含口令。彻底解决仍需跨端令牌化改造。
+
 10. **`/load/data` 仍为匿名接口（已降级但未闭环）**：Go 控制台调用 `/hp/load/data`
     时不会附加账号凭据（控制台只对固定的一批 GET 路径注入凭据），因此本轮无法直接改为强制鉴权。
     已做的缓解：响应收缩为最小字段投影（仅 name/ip/port/level/num，去掉连接明细与统计），
