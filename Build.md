@@ -95,8 +95,12 @@ nano proxy-client-golang/main.go
 > 中的 URL 替换为你的服务端地址（**请使用 https，避免账号密码明文传输**）
 >
 > **Web 控制台**默认只监听 `127.0.0.1:10240`。如需局域网访问，用  
-> `./proxy-client -webHost 0.0.0.0 -webToken <随机令牌>` 启动，再用  
+> `WEB_HOST=0.0.0.0 WEB_TOKEN=<至少16位随机令牌> WEB_ALLOWED_HOSTS=<主机名或IP,逗号分隔> ./proxy-client` 启动，再用  
 > `http://主机地址:10240/?token=<随机令牌>` 打开。
+>
+> `WEB_ALLOWED_HOSTS` 用于防止 **DNS 重绑定**攻击：只按来源 IP 判断"是否本机"会被
+> 攻击者用域名解析到 `127.0.0.1` 绕过，因此访问时的 `Host` 必须命中允许列表
+> （回环名称始终允许）。未配置时只信任回环地址，局域网访问会被拒绝。
 
 ---
 
